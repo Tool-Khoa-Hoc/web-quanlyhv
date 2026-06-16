@@ -1,0 +1,53 @@
+# ===== Dependencies =====
+node_modules/
+.pnp
+.pnp.js
+
+# ===== Next.js build output =====
+.next/
+out/
+dist/
+build/
+*.tsbuildinfo
+next-env.d.ts
+
+# ===== Môi trường / biến bí mật — KHÔNG commit =====
+.env
+.env.*
+!.env.example
+!.env.local.example
+
+# ===== Service Account key của Admin SDK — KHÔNG commit =====
+secrets/
+*service-account*.json
+*.pem
+*.key
+
+# ===== Vercel =====
+.vercel
+
+# ===== Prisma (file DB local nếu dùng SQLite) =====
+*.db
+*.db-journal
+prisma/dev.db
+prisma/*.sqlite
+
+# ===== Python (drive_copy.py) =====
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# ===== Logs / cache =====
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.eslintcache
+
+# ===== Hệ điều hành / Editor =====
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/*
+!.vscode/extensions.json

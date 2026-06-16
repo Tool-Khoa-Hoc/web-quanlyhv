@@ -1,0 +1,166 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+// Phase 1-2 schema target. Keep money as integer VND and commission as basis points
+// so SQLite local and Postgres production stay consistent.
+
+model AppUser {
+  id              String   @id @default(cuid())
+  googleEmailNorm String   @unique
+  name            String
+  role            String   @default("admin")
+  active          Boolean  @default(true)
+  createdAt       DateTime @default(now())
+}
+
+model Ctv {
+  id                String       @id @default(cuid())
+  code              String       @unique
+  name              String
+  emailNorm         String?
+  phone             String?
+  bankInfoText      String?
+  commissionRateBps Int          @default(5000)
+  active            Boolean      @default(true)
+  note              String?
+  enrollments       Enrollment[]
+  payments          Payment[]
+  createdAt         DateTime     @default(now())
+
+  @@index([active, name])
+}
+
+model Student {
+  id          String       @id @default(cuid())
+  gmailNorm   String       @unique
+  displayName String
+  phone       String?
+  note        String?
+  enrollments Enrollment[]
+  groupJobs   GroupJob[]
+  createdAt   DateTime     @default(now())
+}
+
+model CourseGroup {
+  id               String            @id @default(cuid())
+  name             String
+  groupEmailNorm   String            @unique
+  subject          String
+  teacher          String?
+  cohort           String?
+  groupType        String
+  defaultPriceVnd  Int               @default(0)
+  active           Boolean           @default(true)
+  enrollmentGroups EnrollmentGroup[]
+  groupJobs        GroupJob[]
+
+  @@index([active, groupType])
+  @@index([subject, teacher, cohort])
+}
+
+model Enrollment {
+  id                         String             @id @default(cuid())
+  studentId                  String
+  ctvId                      String
+  kind                       String
+  courseLabel                String
+  enrolledOn                 DateTime
+  status                     String             @default("active")
+  feeVnd                     Int                @default(0)
+  commissionRateBpsSnapshot  Int                @default(5000)
+  ownerShareVnd              Int                @default(0)
+  trialStartOn               DateTime?
+  trialEndOn                 DateTime?
+  trialResult                String?
+  convertedToEnrollmentId    String?
+  note                       String?
+  student                    Student            @relation(fields: [studentId], references: [id])
+  ctv                        Ctv                @relation(fields: [ctvId], references: [id])
+  payment                    Payment?
+  enrollmentGroups           EnrollmentGroup[]
+  createdAt                  DateTime           @default(now())
+
+  @@index([ctvId, kind, enrolledOn])
+  @@index([studentId, enrolledOn])
+  @@index([kind, enrolledOn])
+  @@index([kind, trialResult, trialEndOn])
+  @@index([status, enrolledOn])
+}
+
+model Payment {
+  id           String     @id @default(cuid())
+  enrollmentId String     @unique
+  ctvId        String
+  amountVnd    Int
+  status       String     @default("unpaid")
+  receivedOn   DateTime?
+  note         String?
+  enrollment   Enrollment @relation(fields: [enrollmentId], references: [id])
+  ctv          Ctv        @relation(fields: [ctvId], references: [id])
+  createdAt    DateTime   @default(now())
+
+  @@index([ctvId, status])
+  @@index([status, receivedOn])
+  @@index([ctvId, receivedOn])
+}
+
+model EnrollmentGroup {
+  id               String      @id @default(cuid())
+  enrollmentId     String
+  courseGroupId    String
+  membershipStatus String      @default("pending")
+  lastActionAt     DateTime?
+  enrollment       Enrollment  @relation(fields: [enrollmentId], references: [id])
+  courseGroup      CourseGroup @relation(fields: [courseGroupId], references: [id])
+  groupJobs        GroupJob[]
+
+  @@unique([enrollmentId, courseGroupId])
+  @@index([courseGroupId, membershipStatus])
+  @@index([membershipStatus, lastActionAt])
+}
+
+model GroupJob {
+  id                String           @id @default(cuid())
+  jobType           String
+  studentId         String?
+  courseGroupId     String?
+  enrollmentGroupId String?
+  status            String           @default("queued")
+  attempts          Int              @default(0)
+  runAfter          DateTime?
+  lockedAt          DateTime?
+  lockedBy          String?
+  errorCode         String?
+  errorMessage      String?
+  idempotencyKey    String           @unique
+  createdAt         DateTime         @default(now())
+  finishedAt        DateTime?
+  student           Student?         @relation(fields: [studentId], references: [id])
+  courseGroup       CourseGroup?     @relation(fields: [courseGroupId], references: [id])
+  enrollmentGroup   EnrollmentGroup? @relation(fields: [enrollmentGroupId], references: [id])
+
+  @@index([status, runAfter, createdAt, id])
+  @@index([studentId, courseGroupId, status])
+}
+
+model GoogleSession {
+  id                    String    @id @default(cuid())
+  accountEmailNorm      String    @unique
+  storageStateEncrypted String
+  valid                 Boolean   @default(false)
+  lastVerifiedAt        DateTime?
+
+  @@index([valid, lastVerifiedAt])
+}
+
+model AppSetting {
+  key       String  @id
+  valueText String
+  isSecret  Boolean @default(false)
+}

@@ -1,0 +1,2599 @@
+"use client";
+
+import {
+  AlertTriangle,
+  ArrowUpRight,
+  CheckCircle2,
+  CircleDollarSign,
+  Clock3,
+  Filter,
+  FlaskConical,
+  GraduationCap,
+  Layers,
+  LayoutDashboard,
+  Link2,
+  ListChecks,
+  LogOut,
+  LucideIcon,
+  Plus,
+  ReceiptText,
+  RefreshCw,
+  Save,
+  Search,
+  Send,
+  Settings,
+  ShieldCheck,
+  SlidersHorizontal,
+  UserPlus,
+  Users,
+  WalletCards,
+  X,
+} from "lucide-react";
+import Image from "next/image";
+import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
+
+import {
+  byId,
+  currency,
+  ctvDisplay,
+  debtByCtv,
+  findOrCreateStudent,
+  jobLabel,
+  makeId,
+  memberCount,
+  membersByGroup,
+  metrics,
+  ownerShare,
+  paidEnrollments,
+  shortDate,
+  statusLabel,
+  todayISO,
+  trendSeries,
+  trialEnrollments,
+  trialLabel,
+} from "@/lib/calculations";
+import { seedState } from "@/lib/seed-data";
+import {
+  apiAddMember,
+  apiGroupToCourseGroup,
+  apiRemoveMember,
+  apiUpdateRole,
+  fetchAdminStatus,
+  fetchGroups,
+  fetchMembers,
+  roleFromApi,
+} from "@/lib/admin-api";
+import type { ApiAdminStatus, ClientSession } from "@/lib/admin-types";
+import type {
+  AppState,
+  CourseGroup,
+  Ctv,
+  Enrollment,
+  GroupJob,
+  GroupRole,
+  JobStatus,
+  PaymentStatus,
+  TrialResult,
+  ViewKey,
+} from "@/lib/types";
+
+const STORAGE_KEY = "quan-ly-khoa-hoc-state-v2";
+const LEGACY_STORAGE_KEYS = ["quan-ly-khoa-hoc-state-v1"];
+
+type AdminSdkState =
+  | { state: "checking" }
+  | { state: "ready"; details: ApiAdminStatus }
+  | { state: "error"; message: string; checkedAt: string };
+
+const navItems: Array<{ key: ViewKey; label: string; icon: LucideIcon }> = [
+  { key: "dashboard", label: "Dashboard", icon: LayoutDashboard },
+  { key: "transactions", label: "Giao dịch", icon: ReceiptText },
+  { key: "trials", label: "Học thử", icon: FlaskConical },
+  { key: "ctv", label: "CTV", icon: Users },
+  { key: "students", label: "Học viên", icon: GraduationCap },
+  { key: "groups", label: "Nhóm", icon: Layers },
+  { key: "jobs", label: "Jobs", icon: ListChecks },
+  { key: "settings", label: "Cài đặt", icon: Settings },
+];
+const mobileNavKeys: ViewKey[] = ["dashboard", "transactions", "trials", "jobs"];
+const mobileNavItems = mobileNavKeys
+  .map((key) => navItems.find((item) => item.key === key))
+  .filter((item): item is (typeof navItems)[number] => Boolean(item));
+
+type ModalMode = "transaction" | "trial" | null;
+
+interface PaidFormState {
+  gmail: string;
+  studentName: string;
+  ctvId: string;
+  groupId: string;
+  courseType: string;
+  tuition: string;
+  date: string;
+  note: string;
+}
+
+interface TrialFormState {
+  gmail: string;
+  studentName: string;
+  ctvId: string;
+  groupId: string;
+  courseType: string;
+  date: string;
+  trialEndDate: string;
+  note: string;
+}
+
+interface GroupFormState {
+  name: string;
+  groupEmail: string;
+  subject: string;
+  teacher: string;
+  kind: CourseGroup["kind"];
+  priceHint: string;
+}
+
+interface CtvFormState {
+  code: string;
+  name: string;
+  email: string;
+  commissionRate: string;
+}
+
+export function CourseManagerApp({ session }: { session: ClientSession }) {
+  const isAdmin = session.role === "admin";
+  const visibleNavItems = isAdmin ? navItems : navItems.filter((item) => item.key === "groups");
+  const visibleMobileNavItems = isAdmin
+    ? mobileNavItems
+    : navItems.filter((item) => item.key === "groups");
+
+  const [state, setState] = useState<AppState>(seedState);
+  const [hydrated, setHydrated] = useState(false);
+  const [activeView, setActiveView] = useState<ViewKey>(isAdmin ? "dashboard" : "groups");
+  const [query, setQuery] = useState("");
+  const [modal, setModal] = useState<ModalMode>(null);
+  const [ctvFilter, setCtvFilter] = useState("all");
+  const [paymentFilter, setPaymentFilter] = useState<"all" | PaymentStatus>("all");
+  const [trialFilter, setTrialFilter] = useState<"all" | TrialResult>("all");
+  const [adminNotice, setAdminNotice] = useState("");
+  const [adminStatus, setAdminStatus] = useState<AdminSdkState>({ state: "checking" });
+
+  const refreshAdminStatus = useCallback(async () => {
+    setAdminStatus({ state: "checking" });
+    try {
+      const details = await fetchAdminStatus();
+      setAdminStatus({ state: "ready", details });
+      setAdminNotice("Admin SDK đã sẵn sàng.");
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      setAdminStatus({ state: "error", message, checkedAt: new Date().toISOString() });
+      setAdminNotice(`Admin SDK chưa sẵn sàng: ${message}`);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (isAdmin) void refreshAdminStatus();
+  }, [isAdmin, refreshAdminStatus]);
+
+  useEffect(() => {
+    try {
+      LEGACY_STORAGE_KEYS.forEach((key) => window.localStorage.removeItem(key));
+      const raw = window.localStorage.getItem(STORAGE_KEY);
+      if (raw) {
+        const parsed = JSON.parse(raw) as AppState;
+        setState(normalizePersistedState(parsed));
+      }
+    } catch {
+      setState(seedState);
+    }
+    setHydrated(true);
+  }, []);
+
+  useEffect(() => {
+    if (!hydrated) return;
+    try {
+      window.localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+    } catch {
+      // Local storage can be blocked in private browsing; the in-memory state still works.
+    }
+  }, [hydrated, state]);
+
+  // CTV: tự nạp đúng các nhóm được cấp quyền (server đã lọc theo membership).
+  useEffect(() => {
+    if (!hydrated || isAdmin) return;
+    void syncFromGoogle();
+    // syncFromGoogle là function declaration ổn định trong component; chỉ chạy 1 lần sau hydrate.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [hydrated, isAdmin]);
+
+  const model = useMemo(() => {
+    const ctvMap = byId(state.ctvs);
+    const studentMap = byId(state.students);
+    const groupMap = byId(state.groups);
+    const summary = metrics(state);
+    const ctvDebt = debtByCtv(state);
+    const paid = paidEnrollments(state);
+    const trials = trialEnrollments(state);
+    const trend = trendSeries(state);
+
+    return {
+      ctvMap,
+      studentMap,
+      groupMap,
+      summary,
+      ctvDebt,
+      paid,
+      trials,
+      trend,
+    };
+  }, [state]);
+
+  const filteredPaid = useMemo(() => {
+    return model.paid
+      .filter((item) => ctvFilter === "all" || item.ctvId === ctvFilter)
+      .filter((item) => paymentFilter === "all" || item.paymentStatus === paymentFilter)
+      .filter((item) => matchesQuery(item, query, state))
+      .sort((a, b) => b.date.localeCompare(a.date));
+  }, [ctvFilter, model.paid, paymentFilter, query, state]);
+
+  const filteredTrials = useMemo(() => {
+    return model.trials
+      .filter((item) => ctvFilter === "all" || item.ctvId === ctvFilter)
+      .filter((item) => trialFilter === "all" || item.trialResult === trialFilter)
+      .filter((item) => matchesQuery(item, query, state))
+      .sort((a, b) => b.date.localeCompare(a.date));
+  }, [ctvFilter, model.trials, query, state, trialFilter]);
+
+  // Cập nhật trạng thái một job theo kết quả gọi Admin SDK (chạy nền, không chặn UI).
+  function settleMemberJob(jobId: string, promise: Promise<unknown>) {
+    setState((current) => ({
+      ...current,
+      jobs: current.jobs.map((j) => (j.id === jobId ? { ...j, status: "running" } : j)),
+    }));
+    promise
+      .then(() =>
+        setState((current) => ({
+          ...current,
+          jobs: current.jobs.map((j) =>
+            j.id === jobId ? { ...j, status: "done", finishedAt: new Date().toISOString() } : j,
+          ),
+        })),
+      )
+      .catch((error: unknown) => {
+        const message = error instanceof Error ? error.message : String(error);
+        setState((current) => ({
+          ...current,
+          jobs: current.jobs.map((j) =>
+            j.id === jobId
+              ? { ...j, status: "failed", error: message, finishedAt: new Date().toISOString() }
+              : j,
+          ),
+        }));
+        setAdminNotice(`Lỗi đồng bộ Google Group: ${message}`);
+      });
+  }
+
+  function runGroupJob(job: GroupJob) {
+    const group = job.groupId ? state.groups.find((item) => item.id === job.groupId) : undefined;
+    const email = job.studentGmail?.trim().toLowerCase();
+    if (!group?.groupEmail || !email) {
+      const message = "Job thiếu Google Group hoặc Gmail học viên.";
+      setState((current) => ({
+        ...current,
+        jobs: current.jobs.map((item) =>
+          item.id === job.id
+            ? { ...item, status: "failed", error: message, finishedAt: new Date().toISOString() }
+            : item,
+        ),
+      }));
+      setAdminNotice(message);
+      return;
+    }
+
+    if (job.type === "add_member") {
+      settleMemberJob(job.id, apiAddMember(group.groupEmail, email, "member"));
+      return;
+    }
+
+    if (job.type === "remove_member") {
+      settleMemberJob(job.id, apiRemoveMember(group.groupEmail, email));
+      return;
+    }
+
+    setAdminNotice("Job đổi role cần xử lý trực tiếp trong màn Quản lý thành viên.");
+  }
+
+  function addPaidEnrollment(form: PaidFormState) {
+    const ctv = state.ctvs.find((item) => item.id === form.ctvId) ?? state.ctvs[0];
+    const group = state.groups.find((item) => item.id === form.groupId) ?? state.groups[0];
+    if (!group) {
+      setAdminNotice("Chưa có Google Group. Bấm 'Đồng bộ từ Google' trong trang Nhóm trước khi thêm giao dịch.");
+      setActiveView("groups");
+      return;
+    }
+    const tuition = Number(form.tuition) || group.priceHint || 0;
+    const withStudent = findOrCreateStudent(state, form.gmail, form.studentName);
+    const share = ownerShare(tuition, ctv.commissionRate);
+    const enrollment: Enrollment = {
+      id: makeId("enr"),
+      type: "paid",
+      date: form.date || todayISO(),
+      ctvId: ctv.id,
+      studentId: withStudent.studentId,
+      groupId: group.id,
+      courseType: form.courseType || group.name,
+      tuition,
+      commissionRateSnapshot: ctv.commissionRate,
+      ownerShare: share,
+      paymentStatus: "pending",
+      note: form.note,
+    };
+
+    const job = createJob("add_member", group.id, form.gmail);
+    setState({
+      ...withStudent.state,
+      enrollments: [enrollment, ...withStudent.state.enrollments],
+      jobs: [job, ...withStudent.state.jobs],
+    });
+    if (group?.groupEmail) {
+      settleMemberJob(job.id, apiAddMember(group.groupEmail, form.gmail, "member"));
+    }
+    setModal(null);
+    setActiveView("transactions");
+  }
+
+  function addTrialEnrollment(form: TrialFormState) {
+    const ctv = state.ctvs.find((item) => item.id === form.ctvId) ?? state.ctvs[0];
+    const trialGroup =
+      state.groups.find((item) => item.id === form.groupId) ??
+      state.groups.find((item) => item.kind === "trial") ??
+      state.groups[0];
+    if (!trialGroup) {
+      setAdminNotice("Chưa có Google Group. Bấm 'Đồng bộ từ Google' trong trang Nhóm trước khi thêm học thử.");
+      setActiveView("groups");
+      return;
+    }
+    const withStudent = findOrCreateStudent(state, form.gmail, form.studentName);
+    const enrollment: Enrollment = {
+      id: makeId("trial"),
+      type: "trial",
+      date: form.date || todayISO(),
+      ctvId: ctv.id,
+      studentId: withStudent.studentId,
+      groupId: trialGroup.id,
+      courseType: form.courseType || "Học thử",
+      tuition: 0,
+      commissionRateSnapshot: ctv.commissionRate,
+      ownerShare: 0,
+      paymentStatus: "pending",
+      trialResult: "dang_thu",
+      trialEndDate: form.trialEndDate,
+      note: form.note,
+    };
+
+    const job = createJob("add_member", trialGroup.id, form.gmail);
+    setState({
+      ...withStudent.state,
+      enrollments: [enrollment, ...withStudent.state.enrollments],
+      jobs: [job, ...withStudent.state.jobs],
+    });
+    if (trialGroup?.groupEmail) {
+      settleMemberJob(job.id, apiAddMember(trialGroup.groupEmail, form.gmail, "member"));
+    }
+    setModal(null);
+    setActiveView("trials");
+  }
+
+  function togglePayment(enrollmentId: string) {
+    setState((current) => ({
+      ...current,
+      enrollments: current.enrollments.map((item) => {
+        if (item.id !== enrollmentId) return item;
+        const nextStatus = item.paymentStatus === "received" ? "pending" : "received";
+        return {
+          ...item,
+          paymentStatus: nextStatus,
+          paymentReceivedDate: nextStatus === "received" ? todayISO() : undefined,
+        };
+      }),
+    }));
+  }
+
+  function updateTrialResult(enrollmentId: string, result: TrialResult) {
+    setState((current) => ({
+      ...current,
+      enrollments: current.enrollments.map((item) =>
+        item.id === enrollmentId ? { ...item, trialResult: result } : item,
+      ),
+    }));
+  }
+
+  function convertTrial(enrollmentId: string) {
+    const trial = state.enrollments.find((item) => item.id === enrollmentId);
+    if (!trial) return;
+
+    const ctv = model.ctvMap.get(trial.ctvId) ?? state.ctvs[0];
+    const paidGroup = state.groups.find((item) => item.kind !== "trial") ?? state.groups[0];
+    if (!paidGroup) {
+      setAdminNotice("Chưa có nhóm trả phí để chuyển học thử.");
+      setActiveView("groups");
+      return;
+    }
+    const tuition = paidGroup.priceHint || 1200000;
+    const share = ownerShare(tuition, ctv.commissionRate);
+    const student = model.studentMap.get(trial.studentId);
+    const paidEnrollment: Enrollment = {
+      id: makeId("enr"),
+      type: "paid",
+      date: todayISO(),
+      ctvId: trial.ctvId,
+      studentId: trial.studentId,
+      groupId: paidGroup.id,
+      courseType: trial.courseType,
+      tuition,
+      commissionRateSnapshot: ctv.commissionRate,
+      ownerShare: share,
+      paymentStatus: "pending",
+      note: `Chuyển từ học thử ${trial.id}`,
+    };
+
+    const addJob = createJob("add_member", paidGroup.id, student?.gmail);
+    const removeJob = createJob("remove_member", trial.groupId, student?.gmail);
+
+    setState((current) => ({
+      ...current,
+      enrollments: [
+        paidEnrollment,
+        ...current.enrollments.map((item) =>
+          item.id === enrollmentId ? { ...item, trialResult: "da_dang_ky" as const } : item,
+        ),
+      ],
+      jobs: [addJob, removeJob, ...current.jobs],
+    }));
+    if (student?.gmail) {
+      settleMemberJob(addJob.id, apiAddMember(paidGroup.groupEmail, student.gmail, "member"));
+      const trialGroup = state.groups.find((item) => item.id === trial.groupId);
+      if (trialGroup?.groupEmail) {
+        settleMemberJob(removeJob.id, apiRemoveMember(trialGroup.groupEmail, student.gmail));
+      }
+    }
+    setActiveView("transactions");
+  }
+
+  function enqueueGroupJob(enrollment: Enrollment) {
+    const student = model.studentMap.get(enrollment.studentId);
+    const job = createJob("add_member", enrollment.groupId, student?.gmail);
+    setState((current) => ({
+      ...current,
+      jobs: [job, ...current.jobs],
+    }));
+    runGroupJob(job);
+  }
+
+  function retryJob(jobId: string) {
+    const job = state.jobs.find((item) => item.id === jobId);
+    if (!job) return;
+    const retry: GroupJob = {
+      ...job,
+      status: "queued",
+      attempts: job.attempts + 1,
+      error: undefined,
+      finishedAt: undefined,
+    };
+    setState((current) => ({
+      ...current,
+      jobs: current.jobs.map((job) =>
+        job.id === jobId
+          ? retry
+          : job,
+      ),
+    }));
+    runGroupJob(retry);
+  }
+
+  function completeJob(jobId: string) {
+    setState((current) => ({
+      ...current,
+      jobs: current.jobs.map((job) =>
+        job.id === jobId
+          ? {
+              ...job,
+              status: "done",
+              finishedAt: new Date().toISOString(),
+              error: undefined,
+            }
+          : job,
+      ),
+    }));
+  }
+
+  function updateCtvRate(ctvId: string, nextRate: number) {
+    const safeRate = Number.isFinite(nextRate)
+      ? Math.min(1, Math.max(0, nextRate))
+      : state.settings.defaultCommissionRate;
+    setState((current) => ({
+      ...current,
+      ctvs: current.ctvs.map((ctv) =>
+        ctv.id === ctvId ? { ...ctv, commissionRate: safeRate } : ctv,
+      ),
+    }));
+  }
+
+  function addCtv(form: CtvFormState) {
+    const nextIndex = state.ctvs.length + 1;
+    const code = form.code.trim() || `CTV${String(nextIndex).padStart(3, "0")}`;
+    const rate = Number(form.commissionRate);
+    const commissionRate = Number.isFinite(rate)
+      ? Math.min(1, Math.max(0, rate / 100))
+      : state.settings.defaultCommissionRate;
+
+    const ctv: Ctv = {
+      id: makeId("ctv"),
+      code,
+      name: form.name.trim(),
+      email: form.email.trim().toLowerCase(),
+      commissionRate,
+    };
+    setState((current) => ({
+      ...current,
+      ctvs: [...current.ctvs, ctv],
+    }));
+  }
+
+  function markCtvReceived(ctvId: string) {
+    setState((current) => ({
+      ...current,
+      enrollments: current.enrollments.map((item) =>
+        item.ctvId === ctvId && item.type === "paid" && item.paymentStatus === "pending"
+          ? { ...item, paymentStatus: "received", paymentReceivedDate: todayISO() }
+          : item,
+      ),
+    }));
+  }
+
+  function openEnrollmentModal(nextModal: ModalMode) {
+    if (!state.groups.length) {
+      setAdminNotice("Chưa có Google Group. Bấm 'Đồng bộ từ Google' trong trang Nhóm trước.");
+      setActiveView("groups");
+      return;
+    }
+    setModal(nextModal);
+  }
+
+  function addGroup(form: GroupFormState) {
+    // Chỉ admin được tạo nhóm. CTV bị chặn (cả UI lẫn handler).
+    if (!isAdmin) return;
+    const group: CourseGroup = {
+      id: makeId("grp"),
+      name: form.name.trim(),
+      groupEmail: form.groupEmail.trim(),
+      subject: form.subject.trim() || form.name.trim(),
+      teacher: form.teacher.trim() || "Admin",
+      kind: form.kind,
+      priceHint: Number(form.priceHint) || 0,
+    };
+    setState((current) => ({
+      ...current,
+      groups: [...current.groups, group],
+    }));
+  }
+
+  // Nạp danh sách nhóm THẬT từ Google (Admin SDK) — kèm số thành viên thật.
+  async function syncFromGoogle() {
+    setAdminNotice("Đang tải nhóm từ Google…");
+    try {
+      const apiGroups = await fetchGroups();
+      const groups = apiGroups.map(apiGroupToCourseGroup);
+      setState((current) => ({ ...current, groups, groupMembers: [] }));
+      setAdminStatus((current) =>
+        current.state === "ready"
+          ? { ...current, details: { ...current.details, checkedAt: new Date().toISOString() } }
+          : current,
+      );
+      setAdminNotice(`Đã tải ${groups.length} nhóm từ Google.`);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      setAdminStatus({ state: "error", message, checkedAt: new Date().toISOString() });
+      setAdminNotice(`Đồng bộ thất bại: ${message}`);
+    }
+  }
+
+  // Nạp thành viên thật của 1 nhóm (gọi khi mở "Quản lý thành viên").
+  async function loadGroupMembers(group: CourseGroup) {
+    try {
+      const apiMembers = await fetchMembers(group.groupEmail);
+      setState((current) => ({
+        ...current,
+        groupMembers: [
+          ...current.groupMembers.filter((m) => m.groupId !== group.id),
+          ...apiMembers.map((m) => ({
+            id: `mem-${group.id}-${m.email.toLowerCase()}`,
+            groupId: group.id,
+            email: m.email.toLowerCase(),
+            role: roleFromApi(m.role),
+            joinDate: "",
+          })),
+        ],
+        groups: current.groups.map((g) =>
+          g.id === group.id ? { ...g, directMembersCount: apiMembers.length } : g,
+        ),
+      }));
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      setAdminNotice(`Không tải được thành viên: ${message}`);
+    }
+  }
+
+  function deleteGroup(groupId: string) {
+    // Chỉ admin được xóa nhóm. CTV bị chặn (cả UI lẫn handler).
+    if (!isAdmin) return;
+    // Chỉ xóa khỏi danh sách hiển thị cục bộ; không xóa nhóm trên Google.
+    setState((current) => ({
+      ...current,
+      groups: current.groups.filter((group) => group.id !== groupId),
+      groupMembers: current.groupMembers.filter((member) => member.groupId !== groupId),
+    }));
+  }
+
+  // Thêm thành viên THẬT qua Admin SDK rồi mới cập nhật state khi thành công.
+  async function addGroupMember(groupId: string, email: string, name: string, role: GroupRole) {
+    const normalizedEmail = email.trim().toLowerCase();
+    if (!normalizedEmail) return;
+    const group = state.groups.find((g) => g.id === groupId);
+    if (!group) return;
+    const job = createJob("add_member", groupId, normalizedEmail);
+    setState((current) => ({ ...current, jobs: [{ ...job, status: "running" }, ...current.jobs] }));
+    try {
+      const apiMember = await apiAddMember(group.groupEmail, normalizedEmail, role);
+      setState((current) => {
+        const exists = current.groupMembers.some(
+          (item) => item.groupId === groupId && item.email === normalizedEmail,
+        );
+        const member = {
+          id: `mem-${groupId}-${normalizedEmail}`,
+          groupId,
+          email: normalizedEmail,
+          name: name.trim() || undefined,
+          role: roleFromApi(apiMember.role),
+          joinDate: todayISO(),
+        };
+        return {
+          ...current,
+          groupMembers: exists ? current.groupMembers : [...current.groupMembers, member],
+          groups: current.groups.map((g) =>
+            g.id === groupId
+              ? { ...g, directMembersCount: (g.directMembersCount ?? 0) + (exists ? 0 : 1) }
+              : g,
+          ),
+          jobs: current.jobs.map((j) =>
+            j.id === job.id ? { ...j, status: "done", finishedAt: new Date().toISOString() } : j,
+          ),
+        };
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      setState((current) => ({
+        ...current,
+        jobs: current.jobs.map((j) =>
+          j.id === job.id ? { ...j, status: "failed", error: message } : j,
+        ),
+      }));
+      setAdminNotice(`Không thêm được ${normalizedEmail}: ${message}`);
+    }
+  }
+
+  async function removeGroupMember(memberId: string) {
+    const member = state.groupMembers.find((item) => item.id === memberId);
+    if (!member) return;
+    const group = state.groups.find((g) => g.id === member.groupId);
+    if (!group) return;
+    const job = createJob("remove_member", member.groupId, member.email);
+    setState((current) => ({ ...current, jobs: [{ ...job, status: "running" }, ...current.jobs] }));
+    try {
+      await apiRemoveMember(group.groupEmail, member.email);
+      setState((current) => ({
+        ...current,
+        groupMembers: current.groupMembers.filter((item) => item.id !== memberId),
+        groups: current.groups.map((g) =>
+          g.id === member.groupId
+            ? { ...g, directMembersCount: Math.max(0, (g.directMembersCount ?? 1) - 1) }
+            : g,
+        ),
+        jobs: current.jobs.map((j) =>
+          j.id === job.id ? { ...j, status: "done", finishedAt: new Date().toISOString() } : j,
+        ),
+      }));
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      setState((current) => ({
+        ...current,
+        jobs: current.jobs.map((j) =>
+          j.id === job.id ? { ...j, status: "failed", error: message } : j,
+        ),
+      }));
+      setAdminNotice(`Không xóa được ${member.email}: ${message}`);
+    }
+  }
+
+  async function updateMemberRole(memberId: string, role: GroupRole) {
+    const member = state.groupMembers.find((item) => item.id === memberId);
+    if (!member || member.role === role) return;
+    const group = state.groups.find((g) => g.id === member.groupId);
+    if (!group) return;
+    const job = createJob("update_role", member.groupId, member.email);
+    setState((current) => ({ ...current, jobs: [{ ...job, status: "running" }, ...current.jobs] }));
+    try {
+      const apiMember = await apiUpdateRole(group.groupEmail, member.email, role);
+      setState((current) => ({
+        ...current,
+        groupMembers: current.groupMembers.map((item) =>
+          item.id === memberId ? { ...item, role: roleFromApi(apiMember.role) } : item,
+        ),
+        jobs: current.jobs.map((j) =>
+          j.id === job.id ? { ...j, status: "done", finishedAt: new Date().toISOString() } : j,
+        ),
+      }));
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      setState((current) => ({
+        ...current,
+        jobs: current.jobs.map((j) =>
+          j.id === job.id ? { ...j, status: "failed", error: message } : j,
+        ),
+      }));
+      setAdminNotice(`Không đổi được vai trò: ${message}`);
+    }
+  }
+
+  function resetAppData() {
+    setState(seedState);
+    setQuery("");
+    setCtvFilter("all");
+    setPaymentFilter("all");
+    setTrialFilter("all");
+    setAdminNotice("");
+    try {
+      window.localStorage.removeItem(STORAGE_KEY);
+      LEGACY_STORAGE_KEYS.forEach((key) => window.localStorage.removeItem(key));
+    } catch {
+      // Ignore storage cleanup failures; the active state is already reset.
+    }
+  }
+
+  function resetFilters() {
+    setQuery("");
+    setCtvFilter("all");
+    setPaymentFilter("all");
+    setTrialFilter("all");
+  }
+
+  const adminWarning = adminStatus.state === "error";
+
+  const showMobileNav = visibleMobileNavItems.length > 1;
+
+  return (
+    <div className={showMobileNav ? "app-shell" : "app-shell no-mobile-nav"}>
+      <aside className="sidebar" aria-label="Điều hướng chính">
+        <div className="brand">
+          <div className="brand-mark">
+            <Image src="/logo.png" alt="Đấu Trường Học Tập" width={40} height={40} />
+          </div>
+          <div>
+            <strong>Đấu Trường Học Tập</strong>
+            <span>{isAdmin ? "Admin console" : "Cộng tác viên"}</span>
+          </div>
+        </div>
+        <nav className="nav-list">
+          {visibleNavItems.map((item) => (
+            <button
+              key={item.key}
+              className={activeView === item.key ? "nav-item active" : "nav-item"}
+              onClick={() => setActiveView(item.key)}
+              type="button"
+            >
+              <item.icon size={18} aria-hidden="true" />
+              <span>{item.label}</span>
+            </button>
+          ))}
+        </nav>
+        {isAdmin ? <AdminStatusCard status={adminStatus} /> : null}
+        <UserCard session={session} />
+      </aside>
+
+      <main className="main">
+        <header className="topbar">
+          {isAdmin ? (
+            <div className="search-box">
+              <Search size={18} aria-hidden="true" />
+              <input
+                value={query}
+                onChange={(event) => setQuery(event.target.value)}
+                placeholder="Tìm Gmail, CTV, môn..."
+                aria-label="Tìm kiếm dữ liệu"
+              />
+            </div>
+          ) : (
+            <div className="topbar-title">
+              <strong>Nhóm của tôi</strong>
+              <span>Quản lý thành viên các nhóm bạn được cấp quyền.</span>
+            </div>
+          )}
+          <div className="topbar-actions">
+            {isAdmin ? (
+              <>
+                <button className="icon-button" title="Xóa bộ lọc" type="button" onClick={resetFilters}>
+                  <Filter size={18} />
+                </button>
+                <button className="button ghost" type="button" onClick={() => openEnrollmentModal("trial")}>
+                  <FlaskConical size={17} />
+                  <span>Thêm học thử</span>
+                </button>
+                <button className="button primary" type="button" onClick={() => openEnrollmentModal("transaction")}>
+                  <Plus size={17} />
+                  <span>Thêm giao dịch</span>
+                </button>
+              </>
+            ) : null}
+            <a className="button ghost" href="/api/auth/logout" title="Đăng xuất">
+              <LogOut size={17} />
+              <span>Đăng xuất</span>
+            </a>
+          </div>
+        </header>
+
+        {isAdmin && adminWarning ? (
+          <div className="alert-strip">
+            <AlertTriangle size={18} />
+            <span>Admin SDK chưa sẵn sàng: {adminStatus.message}</span>
+            <button type="button" onClick={() => setActiveView("settings")}>
+              Mở cài đặt
+            </button>
+          </div>
+        ) : null}
+
+        <section className="content-stack">
+          {activeView === "dashboard" ? (
+            <DashboardView
+              state={state}
+              model={model}
+              onTogglePayment={togglePayment}
+              onRetryJob={retryJob}
+              onOpenTransactions={() => setActiveView("transactions")}
+            />
+          ) : null}
+
+          {activeView === "transactions" ? (
+            <TransactionsView
+              state={state}
+              rows={filteredPaid}
+              ctvFilter={ctvFilter}
+              paymentFilter={paymentFilter}
+              onCtvFilter={setCtvFilter}
+              onPaymentFilter={setPaymentFilter}
+              onTogglePayment={togglePayment}
+              onEnqueueJob={enqueueGroupJob}
+            />
+          ) : null}
+
+          {activeView === "trials" ? (
+            <TrialsView
+              state={state}
+              rows={filteredTrials}
+              ctvFilter={ctvFilter}
+              trialFilter={trialFilter}
+              onCtvFilter={setCtvFilter}
+              onTrialFilter={setTrialFilter}
+              onUpdateResult={updateTrialResult}
+              onConvertTrial={convertTrial}
+            />
+          ) : null}
+
+          {activeView === "ctv" ? (
+            <CtvView
+              state={state}
+              model={model}
+              onAddCtv={addCtv}
+              onRateChange={updateCtvRate}
+              onMarkReceived={markCtvReceived}
+            />
+          ) : null}
+
+          {activeView === "students" ? <StudentsView state={state} /> : null}
+          {activeView === "groups" ? (
+            <GroupsView
+              state={state}
+              isAdmin={isAdmin}
+              onAddGroup={addGroup}
+              onDeleteGroup={deleteGroup}
+              onSyncFromGoogle={syncFromGoogle}
+              onOpenGroup={loadGroupMembers}
+              onAddMember={addGroupMember}
+              onRemoveMember={removeGroupMember}
+              onUpdateRole={updateMemberRole}
+            />
+          ) : null}
+          {activeView === "jobs" ? <JobsView state={state} onRetryJob={retryJob} onCompleteJob={completeJob} /> : null}
+          {activeView === "settings" ? (
+            <SettingsView
+              state={state}
+              adminStatus={adminStatus}
+              onReset={resetAppData}
+              onRefreshAdminStatus={refreshAdminStatus}
+              adminNotice={adminNotice}
+            />
+          ) : null}
+        </section>
+      </main>
+
+      {showMobileNav ? (
+        <nav
+          className="mobile-nav"
+          aria-label="Điều hướng mobile"
+          style={{ gridTemplateColumns: `repeat(${visibleMobileNavItems.length}, 1fr)` }}
+        >
+          {visibleMobileNavItems.map((item) => (
+            <button
+              key={item.key}
+              className={activeView === item.key ? "mobile-nav-item active" : "mobile-nav-item"}
+              onClick={() => setActiveView(item.key)}
+              type="button"
+            >
+              <item.icon size={19} aria-hidden="true" />
+              <span>{item.label}</span>
+            </button>
+          ))}
+        </nav>
+      ) : null}
+
+      {modal === "transaction" ? (
+        <PaidEnrollmentModal
+          state={state}
+          onClose={() => setModal(null)}
+          onSubmit={addPaidEnrollment}
+        />
+      ) : null}
+      {modal === "trial" ? (
+        <TrialEnrollmentModal
+          state={state}
+          onClose={() => setModal(null)}
+          onSubmit={addTrialEnrollment}
+        />
+      ) : null}
+    </div>
+  );
+}
+
+function DashboardView({
+  state,
+  model,
+  onTogglePayment,
+  onRetryJob,
+  onOpenTransactions,
+}: {
+  state: AppState;
+  model: ReturnType<typeof buildModelShape>;
+  onTogglePayment: (id: string) => void;
+  onRetryJob: (id: string) => void;
+  onOpenTransactions: () => void;
+}) {
+  const recentPaid = model.paid.slice(0, 5);
+  const urgentTrials = model.trials
+    .filter((item) => item.trialResult === "dang_thu")
+    .sort((a, b) => (a.trialEndDate ?? "").localeCompare(b.trialEndDate ?? ""))
+    .slice(0, 4);
+  const actionableJobs = state.jobs.filter((job) => job.status !== "done").slice(0, 4);
+
+  return (
+    <>
+      <div className="page-heading">
+        <div>
+          <h1>Dashboard</h1>
+          <p>Công nợ, chuyển đổi học thử và queue Google Group trong một màn hình.</p>
+        </div>
+        <button className="button secondary" type="button" onClick={onOpenTransactions}>
+          <ArrowUpRight size={17} />
+          <span>Xem giao dịch</span>
+        </button>
+      </div>
+
+      <div className="metric-grid">
+        <MetricCard label="Anh đáng nhận" value={currency(model.summary.expected)} icon={CircleDollarSign} tone="blue" />
+        <MetricCard label="Đã thu" value={currency(model.summary.received)} icon={CheckCircle2} tone="green" />
+        <MetricCard label="Còn nợ" value={currency(model.summary.debt)} icon={WalletCards} tone="amber" />
+        <MetricCard label="Tỉ lệ chuyển đổi" value={`${model.summary.conversionRate}%`} icon={FlaskConical} tone="slate" />
+      </div>
+
+      <div className="dashboard-grid">
+        <section className="panel span-7">
+          <PanelHeader title="Doanh thu theo ngày" action={`${model.summary.unpaidCount} khóa chưa trả`} />
+          <TrendChart data={model.trend} />
+        </section>
+
+        <section className="panel span-5">
+          <PanelHeader title="Công nợ theo CTV" action="Ưu tiên thu" />
+          <div className="stack-list">
+            {model.ctvDebt.map((row) => (
+              <div className="debt-row" key={row.ctv.id}>
+                <div>
+                  <strong>{row.ctv.name}</strong>
+                  <span>{row.pendingCount} giao dịch chờ</span>
+                </div>
+                <div className="money-cell debt">{currency(row.debt)}</div>
+              </div>
+            ))}
+          </div>
+        </section>
+
+        <section className="panel span-8">
+          <PanelHeader title="Giao dịch gần đây" action="Bảng giống Excel" />
+          <DataTable>
+            <thead>
+              <tr>
+                <th>Gmail</th>
+                <th>CTV</th>
+                <th>Môn/Combo</th>
+                <th className="numeric">Anh nhận</th>
+                <th>Trạng thái</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody>
+              {recentPaid.length ? (
+                recentPaid.map((item) => (
+                  <TransactionRow
+                    key={item.id}
+                    enrollment={item}
+                    state={state}
+                    compact
+                    onTogglePayment={onTogglePayment}
+                  />
+                ))
+              ) : (
+                <EmptyTableRow colSpan={6} label="Chưa có giao dịch trả phí." />
+              )}
+            </tbody>
+          </DataTable>
+        </section>
+
+        <section className="panel span-4">
+          <PanelHeader title="Việc cần xử lý" action="Hôm nay" />
+          <div className="stack-list">
+            {urgentTrials.map((trial) => {
+              const student = model.studentMap.get(trial.studentId);
+              return (
+                <div className="task-row" key={trial.id}>
+                  <Clock3 size={17} />
+                  <div>
+                    <strong>{student?.gmail}</strong>
+                    <span>Hết thử {trial.trialEndDate ? shortDate(trial.trialEndDate) : "chưa đặt"}</span>
+                  </div>
+                </div>
+              );
+            })}
+            {actionableJobs.map((job) => (
+              <div className="task-row" key={job.id}>
+                <RefreshCw size={17} />
+                <div>
+                  <strong>{jobLabel(job)}</strong>
+                  <span>{statusLabel(job.status)}</span>
+                </div>
+                {job.status === "failed" || job.status === "needs_session" ? (
+                  <button className="mini-button" type="button" onClick={() => onRetryJob(job.id)}>
+                    Retry
+                  </button>
+                ) : null}
+              </div>
+            ))}
+            {!urgentTrials.length && !actionableJobs.length ? <EmptyState label="Chưa có việc cần xử lý." /> : null}
+          </div>
+        </section>
+      </div>
+    </>
+  );
+}
+
+function TransactionsView({
+  state,
+  rows,
+  ctvFilter,
+  paymentFilter,
+  onCtvFilter,
+  onPaymentFilter,
+  onTogglePayment,
+  onEnqueueJob,
+}: {
+  state: AppState;
+  rows: Enrollment[];
+  ctvFilter: string;
+  paymentFilter: "all" | PaymentStatus;
+  onCtvFilter: (id: string) => void;
+  onPaymentFilter: (status: "all" | PaymentStatus) => void;
+  onTogglePayment: (id: string) => void;
+  onEnqueueJob: (enrollment: Enrollment) => void;
+}) {
+  return (
+    <>
+      <PageTitle
+        title="Giao dịch"
+        subtitle="Theo dõi đăng ký trả phí, snapshot hoa hồng và tiền CTV đã chuyển."
+      />
+      <FilterBar
+        state={state}
+        ctvFilter={ctvFilter}
+        onCtvFilter={onCtvFilter}
+        right={
+          <Segmented
+            value={paymentFilter}
+            options={[
+              { value: "all", label: "Tất cả" },
+              { value: "pending", label: "Chưa trả" },
+              { value: "received", label: "Đã trả" },
+            ]}
+            onChange={(value) => onPaymentFilter(value as "all" | PaymentStatus)}
+          />
+        }
+      />
+      <section className="panel">
+        <DataTable>
+          <thead>
+            <tr>
+              <th>Ngày</th>
+              <th>Gmail học viên</th>
+              <th>CTV</th>
+              <th>Môn/Combo</th>
+              <th className="numeric">Học phí</th>
+              <th className="numeric">Anh nhận</th>
+              <th>Tiền</th>
+              <th>Google Group</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.length ? (
+              rows.map((item) => (
+                <TransactionRow
+                  key={item.id}
+                  enrollment={item}
+                  state={state}
+                  onTogglePayment={onTogglePayment}
+                  onEnqueueJob={onEnqueueJob}
+                />
+              ))
+            ) : (
+              <EmptyTableRow colSpan={9} label="Chưa có giao dịch nào." />
+            )}
+          </tbody>
+        </DataTable>
+      </section>
+    </>
+  );
+}
+
+function TrialsView({
+  state,
+  rows,
+  ctvFilter,
+  trialFilter,
+  onCtvFilter,
+  onTrialFilter,
+  onUpdateResult,
+  onConvertTrial,
+}: {
+  state: AppState;
+  rows: Enrollment[];
+  ctvFilter: string;
+  trialFilter: "all" | TrialResult;
+  onCtvFilter: (id: string) => void;
+  onTrialFilter: (status: "all" | TrialResult) => void;
+  onUpdateResult: (id: string, result: TrialResult) => void;
+  onConvertTrial: (id: string) => void;
+}) {
+  const studentMap = byId(state.students);
+  const ctvMap = byId(state.ctvs);
+
+  return (
+    <>
+      <PageTitle
+        title="Học thử"
+        subtitle="Quản lý học thử, kết quả chuyển đổi và việc xóa khỏi nhóm học thử khi cần."
+      />
+      <FilterBar
+        state={state}
+        ctvFilter={ctvFilter}
+        onCtvFilter={onCtvFilter}
+        right={
+          <Segmented
+            value={trialFilter}
+            options={[
+              { value: "all", label: "Tất cả" },
+              { value: "dang_thu", label: "Đang thử" },
+              { value: "da_dang_ky", label: "Đã đăng ký" },
+              { value: "khong_dang_ky", label: "Không đăng ký" },
+            ]}
+            onChange={(value) => onTrialFilter(value as "all" | TrialResult)}
+          />
+        }
+      />
+      <section className="panel">
+        <DataTable>
+          <thead>
+            <tr>
+              <th>Ngày thử</th>
+              <th>Gmail học viên</th>
+              <th>CTV</th>
+              <th>Môn/Combo</th>
+              <th>Hết hạn</th>
+              <th>Kết quả</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.length ? (
+              rows.map((item) => {
+                const student = studentMap.get(item.studentId);
+                const ctv = ctvMap.get(item.ctvId);
+                return (
+                  <tr key={item.id}>
+                    <td>{shortDate(item.date)}</td>
+                    <td>
+                      <strong>{student?.gmail}</strong>
+                      <span className="table-subtext">{student?.name}</span>
+                    </td>
+                    <td>{ctv?.name}</td>
+                    <td>{item.courseType}</td>
+                    <td>{item.trialEndDate ? shortDate(item.trialEndDate) : "Chưa đặt"}</td>
+                    <td>
+                      <select
+                        className="select compact"
+                        value={item.trialResult ?? "dang_thu"}
+                        onChange={(event) => onUpdateResult(item.id, event.target.value as TrialResult)}
+                        aria-label="Cập nhật kết quả học thử"
+                      >
+                        <option value="dang_thu">Đang thử</option>
+                        <option value="da_dang_ky">Đã đăng ký</option>
+                        <option value="khong_dang_ky">Không đăng ký</option>
+                      </select>
+                    </td>
+                    <td className="row-actions">
+                      <button className="mini-button" type="button" onClick={() => onConvertTrial(item.id)}>
+                        Chuyển trả phí
+                      </button>
+                    </td>
+                  </tr>
+                );
+              })
+            ) : (
+              <EmptyTableRow colSpan={7} label="Chưa có học thử nào." />
+            )}
+          </tbody>
+        </DataTable>
+      </section>
+    </>
+  );
+}
+
+function CtvView({
+  state,
+  model,
+  onAddCtv,
+  onRateChange,
+  onMarkReceived,
+}: {
+  state: AppState;
+  model: ReturnType<typeof buildModelShape>;
+  onAddCtv: (form: CtvFormState) => void;
+  onRateChange: (ctvId: string, rate: number) => void;
+  onMarkReceived: (ctvId: string) => void;
+}) {
+  const [showAddCtv, setShowAddCtv] = useState(false);
+
+  return (
+    <>
+      <div className="page-heading">
+        <div>
+          <h1>CTV</h1>
+          <p>Tỷ lệ hoa hồng hiện tại và công nợ theo từng cộng tác viên.</p>
+        </div>
+        <button className="button primary" type="button" onClick={() => setShowAddCtv(true)}>
+          <UserPlus size={17} />
+          <span>Thêm CTV</span>
+        </button>
+      </div>
+      <div className="ctv-grid">
+        {model.ctvDebt.map((row) => (
+          <section className="panel ctv-card" key={row.ctv.id}>
+            <div className="ctv-card-head">
+              <div>
+                <h2>{row.ctv.name}</h2>
+                <span>{row.ctv.email}</span>
+              </div>
+              <StatusBadge variant={row.debt > 0 ? "warning" : "success"}>
+                {row.debt > 0 ? "Còn nợ" : "Đã đủ"}
+              </StatusBadge>
+            </div>
+            <div className="ctv-stats">
+              <InlineStat label="Đáng nhận" value={currency(row.expected)} />
+              <InlineStat label="Đã thu" value={currency(row.received)} />
+              <InlineStat label="Còn nợ" value={currency(row.debt)} strong />
+            </div>
+            <label className="field-label">
+              Tỷ lệ hiện tại
+              <input
+                className="input"
+                type="number"
+                min="0"
+                max="100"
+                step="1"
+                value={Math.round(row.ctv.commissionRate * 100)}
+                onChange={(event) => onRateChange(row.ctv.id, Number(event.target.value) / 100)}
+              />
+            </label>
+            <button className="button secondary full" type="button" onClick={() => onMarkReceived(row.ctv.id)}>
+              <CheckCircle2 size={17} />
+              <span>Đánh dấu đã nhận</span>
+            </button>
+          </section>
+        ))}
+      </div>
+      <section className="panel">
+        <PanelHeader title="Giao dịch theo CTV" action={`${state.enrollments.length} bản ghi`} />
+        <DataTable>
+          <thead>
+            <tr>
+              <th>CTV</th>
+              <th>Gmail</th>
+              <th>Môn</th>
+              <th className="numeric">Snapshot</th>
+              <th className="numeric">Anh nhận</th>
+              <th>Tiền</th>
+            </tr>
+          </thead>
+          <tbody>
+            {paidEnrollments(state).length ? (
+              paidEnrollments(state).map((item) => {
+                const ctv = model.ctvMap.get(item.ctvId);
+                const student = model.studentMap.get(item.studentId);
+                return (
+                  <tr key={item.id}>
+                    <td>{ctv?.name}</td>
+                    <td>{student?.gmail}</td>
+                    <td>{item.courseType}</td>
+                    <td className="numeric">{Math.round(item.commissionRateSnapshot * 100)}%</td>
+                    <td className="numeric money-cell">{currency(item.ownerShare)}</td>
+                    <td>
+                      <PaymentBadge status={item.paymentStatus} />
+                    </td>
+                  </tr>
+                );
+              })
+            ) : (
+              <EmptyTableRow colSpan={6} label="Chưa có giao dịch theo CTV." />
+            )}
+          </tbody>
+        </DataTable>
+      </section>
+      {showAddCtv ? (
+        <AddCtvModal
+          defaultRate={state.settings.defaultCommissionRate}
+          nextIndex={state.ctvs.length + 1}
+          onClose={() => setShowAddCtv(false)}
+          onSubmit={(form) => {
+            onAddCtv(form);
+            setShowAddCtv(false);
+          }}
+        />
+      ) : null}
+    </>
+  );
+}
+
+function StudentsView({ state }: { state: AppState }) {
+  const ctvMap = byId(state.ctvs);
+  const groupMap = byId(state.groups);
+
+  return (
+    <>
+      <PageTitle title="Học viên" subtitle="Hồ sơ theo Gmail, lịch sử học thử/trả phí và nhóm đang liên quan." />
+      <section className="panel">
+        <div className="student-list">
+          {state.students.length ? (
+            state.students.map((student) => {
+              const rows = state.enrollments.filter((item) => item.studentId === student.id);
+              return (
+                <article className="student-row" key={student.id}>
+                  <div className="avatar">{student.name.slice(0, 1).toUpperCase()}</div>
+                  <div className="student-main">
+                    <strong>{student.gmail}</strong>
+                    <span>{student.name}</span>
+                  </div>
+                  <div className="student-tags">
+                    {rows.slice(0, 3).map((item) => (
+                      <span className="tag" key={item.id}>
+                        {item.type === "trial" ? "Học thử" : groupMap.get(item.groupId)?.name}
+                      </span>
+                    ))}
+                  </div>
+                  <div className="student-side">
+                    <span>{rows.length} đăng ký</span>
+                    <span>{ctvMap.get(rows[0]?.ctvId)?.name ?? "Chưa có CTV"}</span>
+                  </div>
+                </article>
+              );
+            })
+          ) : (
+            <EmptyState label="Chưa có học viên." />
+          )}
+        </div>
+      </section>
+    </>
+  );
+}
+
+function GroupsView({
+  state,
+  isAdmin,
+  onAddGroup,
+  onDeleteGroup,
+  onSyncFromGoogle,
+  onOpenGroup,
+  onAddMember,
+  onRemoveMember,
+  onUpdateRole,
+}: {
+  state: AppState;
+  isAdmin: boolean;
+  onAddGroup: (form: GroupFormState) => void;
+  onDeleteGroup: (groupId: string) => void;
+  onSyncFromGoogle: () => void;
+  onOpenGroup: (group: CourseGroup) => void;
+  onAddMember: (groupId: string, email: string, name: string, role: GroupRole) => void;
+  onRemoveMember: (memberId: string) => void;
+  onUpdateRole: (memberId: string, role: GroupRole) => void;
+}) {
+  const [showAddGroup, setShowAddGroup] = useState(false);
+  const [activeGroupId, setActiveGroupId] = useState<string | null>(null);
+  const groupMap = byId(state.groups);
+  const activeGroup = activeGroupId ? state.groups.find((group) => group.id === activeGroupId) : null;
+
+  return (
+    <>
+      <div className="page-heading">
+        <div>
+          <h1>{isAdmin ? "Nhóm / Khóa học" : "Nhóm của tôi"}</h1>
+          <p>
+            {isAdmin
+              ? "Gán môn, giáo viên và Google Group cho từng khóa."
+              : "Các nhóm bạn được cấp quyền. Bạn có thể thêm/xóa/đổi vai trò thành viên."}
+          </p>
+        </div>
+        <div className="topbar-actions">
+          <button
+            className="button ghost"
+            type="button"
+            title="Nạp lại danh sách nhóm + số thành viên thật từ Google"
+            onClick={() => {
+              if (!isAdmin) {
+                onSyncFromGoogle();
+                return;
+              }
+              if (
+                window.confirm(
+                  "Tải lại danh sách nhóm từ Google? Danh sách hiện tại sẽ được thay bằng dữ liệu thật trong domain.",
+                )
+              ) {
+                onSyncFromGoogle();
+              }
+            }}
+          >
+            <RefreshCw size={17} />
+            <span>{isAdmin ? "Đồng bộ từ Google" : "Tải lại"}</span>
+          </button>
+          {isAdmin ? (
+            <button className="button primary" type="button" onClick={() => setShowAddGroup(true)}>
+              <Plus size={17} />
+              <span>Thêm nhóm</span>
+            </button>
+          ) : null}
+        </div>
+      </div>
+      <div className="group-grid">
+        {state.groups.length ? (
+          state.groups.map((group) => (
+            <section className="panel group-card" key={group.id}>
+              <div className="group-icon">
+                <Link2 size={20} />
+              </div>
+              <div>
+                <h2>{group.name}</h2>
+                <p>{group.groupEmail}</p>
+              </div>
+              <div className="group-meta">
+                <span>{group.subject}</span>
+                <span>{group.teacher}</span>
+                <span>{currency(group.priceHint)}</span>
+              </div>
+              <div className="group-footer">
+                <StatusBadge variant={group.kind === "trial" ? "info" : "success"}>
+                  {group.kind === "trial" ? "Học thử" : group.kind === "combo" ? "Combo" : "Trả phí"}
+                </StatusBadge>
+                <span>
+                  <Users size={14} aria-hidden="true" />{" "}
+                  {group.directMembersCount ?? memberCount(state, group.id)} thành viên
+                </span>
+              </div>
+              <div className="group-actions">
+                <button
+                  className="mini-button"
+                  type="button"
+                  onClick={() => {
+                    setActiveGroupId(group.id);
+                    onOpenGroup(group);
+                  }}
+                >
+                  <UserPlus size={14} />
+                  Quản lý thành viên
+                </button>
+                {isAdmin ? (
+                  <button
+                    className="mini-button ghost"
+                    type="button"
+                    onClick={() => {
+                      if (window.confirm(`Xóa nhóm "${group.name}"? Mọi thành viên đã lưu của nhóm cũng bị xóa.`)) {
+                        onDeleteGroup(group.id);
+                      }
+                    }}
+                  >
+                    <X size={14} />
+                    Xóa nhóm
+                  </button>
+                ) : null}
+              </div>
+            </section>
+          ))
+        ) : (
+          <EmptyState
+            label={
+              isAdmin
+                ? "Chưa có nhóm nào. Bấm 'Đồng bộ từ Google' để nạp nhóm thật."
+                : "Bạn chưa được cấp quyền nhóm nào. Liên hệ quản trị viên để được thêm vào nhóm."
+            }
+          />
+        )}
+      </div>
+      {isAdmin ? (
+        <section className="panel">
+          <PanelHeader title="Tình trạng queue theo nhóm" action={`${state.jobs.length} jobs`} />
+          <div className="stack-list">
+            {state.jobs.length ? (
+              state.jobs.slice(0, 6).map((job) => (
+                <div className="queue-row" key={job.id}>
+                  <div>
+                    <strong>{groupMap.get(job.groupId ?? "")?.name ?? "Admin SDK"}</strong>
+                    <span>{job.studentGmail ?? "Tài khoản automation"}</span>
+                  </div>
+                  <JobBadge status={job.status} />
+                </div>
+              ))
+            ) : (
+              <EmptyState label="Chưa có job Google Group." />
+            )}
+          </div>
+        </section>
+      ) : null}
+
+      {showAddGroup ? (
+        <AddGroupModal
+          onClose={() => setShowAddGroup(false)}
+          onSubmit={(form) => {
+            onAddGroup(form);
+            setShowAddGroup(false);
+          }}
+        />
+      ) : null}
+
+      {activeGroup ? (
+        <GroupMembersModal
+          group={activeGroup}
+          members={membersByGroup(state, activeGroup.id)}
+          onClose={() => setActiveGroupId(null)}
+          onAddMember={onAddMember}
+          onRemoveMember={onRemoveMember}
+          onUpdateRole={onUpdateRole}
+        />
+      ) : null}
+    </>
+  );
+}
+
+function GroupMembersModal({
+  group,
+  members,
+  onClose,
+  onAddMember,
+  onRemoveMember,
+  onUpdateRole,
+}: {
+  group: CourseGroup;
+  members: AppState["groupMembers"];
+  onClose: () => void;
+  onAddMember: (groupId: string, email: string, name: string, role: GroupRole) => void;
+  onRemoveMember: (memberId: string) => void;
+  onUpdateRole: (memberId: string, role: GroupRole) => void;
+}) {
+  const [email, setEmail] = useState("");
+  const [name, setName] = useState("");
+  const [role, setRole] = useState<GroupRole>("member");
+
+  function submit(event: FormEvent) {
+    event.preventDefault();
+    if (!email.trim()) return;
+    onAddMember(group.id, email, name, role);
+    setEmail("");
+    setName("");
+    setRole("member");
+  }
+
+  return (
+    <ModalShell title={`Thành viên · ${group.name}`} onClose={onClose}>
+      <div className="member-modal">
+        <p className="member-modal-sub">
+          {group.groupEmail} · {members.length} thành viên
+        </p>
+        <form className="member-add-row" onSubmit={submit}>
+          <input
+            className="input"
+            type="email"
+            placeholder="Email thành viên"
+            value={email}
+            required
+            onChange={(event) => setEmail(event.target.value)}
+          />
+          <input
+            className="input"
+            type="text"
+            placeholder="Tên (tùy chọn)"
+            value={name}
+            onChange={(event) => setName(event.target.value)}
+          />
+          <select
+            className="select compact"
+            value={role}
+            onChange={(event) => setRole(event.target.value as GroupRole)}
+            aria-label="Role thành viên mới"
+          >
+            <option value="member">Thành viên</option>
+            <option value="manager">Quản lý</option>
+            <option value="owner">Chủ sở hữu</option>
+          </select>
+          <button className="button primary" type="submit">
+            <UserPlus size={16} />
+            <span>Thêm</span>
+          </button>
+        </form>
+        <div className="table-wrap">
+          <table className="data-table member-table">
+            <thead>
+              <tr>
+                <th>Email</th>
+                <th>Tên</th>
+                <th>Role</th>
+                <th>Ngày tham gia</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody>
+              {members.length ? (
+                members.map((member) => (
+                  <tr key={member.id}>
+                    <td data-label="Email">
+                      <strong>{member.email}</strong>
+                    </td>
+                    <td data-label="Tên">{member.name ?? "-"}</td>
+                    <td data-label="Role">
+                      <select
+                        className="select compact"
+                        value={member.role}
+                        onChange={(event) => onUpdateRole(member.id, event.target.value as GroupRole)}
+                        aria-label={`Đổi role của ${member.email}`}
+                      >
+                        <option value="member">Thành viên</option>
+                        <option value="manager">Quản lý</option>
+                        <option value="owner">Chủ sở hữu</option>
+                      </select>
+                    </td>
+                    <td data-label="Ngày tham gia">{shortDate(member.joinDate)}</td>
+                    <td className="row-actions">
+                      <button
+                        className="mini-button ghost"
+                        type="button"
+                        onClick={() => {
+                          if (window.confirm(`Xóa ${member.email} khỏi nhóm?`)) {
+                            onRemoveMember(member.id);
+                          }
+                        }}
+                      >
+                        <X size={14} />
+                        Xóa
+                      </button>
+                    </td>
+                  </tr>
+                ))
+              ) : (
+                <EmptyTableRow colSpan={5} label="Chưa có thành viên. Thêm email phía trên." />
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </ModalShell>
+  );
+}
+
+function AddGroupModal({
+  onClose,
+  onSubmit,
+}: {
+  onClose: () => void;
+  onSubmit: (form: GroupFormState) => void;
+}) {
+  const [form, setForm] = useState<GroupFormState>({
+    name: "",
+    groupEmail: "",
+    subject: "",
+    teacher: "",
+    kind: "paid",
+    priceHint: "0",
+  });
+
+  return (
+    <ModalShell title="Thêm Google Group" onClose={onClose}>
+      <form
+        className="form-grid"
+        onSubmit={(event) => {
+          event.preventDefault();
+          onSubmit(form);
+        }}
+      >
+        <TextField label="Tên nhóm" value={form.name} required onChange={(name) => setForm({ ...form, name })} />
+        <TextField
+          label="Google Group email"
+          value={form.groupEmail}
+          type="email"
+          required
+          onChange={(groupEmail) => setForm({ ...form, groupEmail })}
+        />
+        <TextField label="Môn" value={form.subject} onChange={(subject) => setForm({ ...form, subject })} />
+        <TextField label="Giáo viên" value={form.teacher} onChange={(teacher) => setForm({ ...form, teacher })} />
+        <SelectField
+          label="Loại"
+          value={form.kind}
+          onChange={(kind) => setForm({ ...form, kind: kind as CourseGroup["kind"] })}
+          options={[
+            { value: "trial", label: "Học thử" },
+            { value: "paid", label: "Trả phí" },
+            { value: "combo", label: "Combo" },
+          ]}
+        />
+        <TextField
+          label="Giá gợi ý"
+          value={form.priceHint}
+          type="number"
+          onChange={(priceHint) => setForm({ ...form, priceHint })}
+        />
+        <div className="modal-actions">
+          <button className="button ghost" type="button" onClick={onClose}>
+            <X size={17} />
+            <span>Hủy</span>
+          </button>
+          <button className="button primary" type="submit">
+            <Save size={17} />
+            <span>Lưu nhóm</span>
+          </button>
+        </div>
+      </form>
+    </ModalShell>
+  );
+}
+
+function AddCtvModal({
+  defaultRate,
+  nextIndex,
+  onClose,
+  onSubmit,
+}: {
+  defaultRate: number;
+  nextIndex: number;
+  onClose: () => void;
+  onSubmit: (form: CtvFormState) => void;
+}) {
+  const [form, setForm] = useState<CtvFormState>({
+    code: `CTV${String(nextIndex).padStart(3, "0")}`,
+    name: "",
+    email: "",
+    commissionRate: String(Math.round(defaultRate * 100)),
+  });
+
+  return (
+    <ModalShell title="Thêm CTV" onClose={onClose}>
+      <form
+        className="form-grid"
+        onSubmit={(event) => {
+          event.preventDefault();
+          onSubmit(form);
+        }}
+      >
+        <TextField label="Mã CTV" value={form.code} required onChange={(code) => setForm({ ...form, code })} />
+        <TextField label="Tên CTV" value={form.name} required onChange={(name) => setForm({ ...form, name })} />
+        <TextField
+          label="Email"
+          value={form.email}
+          type="email"
+          required
+          onChange={(email) => setForm({ ...form, email })}
+        />
+        <TextField
+          label="Hoa hồng (%)"
+          value={form.commissionRate}
+          type="number"
+          required
+          onChange={(commissionRate) => setForm({ ...form, commissionRate })}
+        />
+        <div className="modal-actions">
+          <button className="button ghost" type="button" onClick={onClose}>
+            <X size={17} />
+            <span>Hủy</span>
+          </button>
+          <button className="button primary" type="submit">
+            <Save size={17} />
+            <span>Lưu CTV</span>
+          </button>
+        </div>
+      </form>
+    </ModalShell>
+  );
+}
+
+function JobsView({
+  state,
+  onRetryJob,
+  onCompleteJob,
+}: {
+  state: AppState;
+  onRetryJob: (id: string) => void;
+  onCompleteJob: (id: string) => void;
+}) {
+  const groupMap = byId(state.groups);
+
+  return (
+    <>
+      <PageTitle title="Automation / Jobs" subtitle="Queue add/remove Google Group và trạng thái Admin SDK." />
+      <section className="panel">
+        <DataTable>
+          <thead>
+            <tr>
+              <th>Loại job</th>
+              <th>Gmail</th>
+              <th>Nhóm</th>
+              <th>Trạng thái</th>
+              <th>Lần thử</th>
+              <th>Lỗi</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody>
+            {state.jobs.length ? (
+              state.jobs.map((job) => (
+                <tr key={job.id}>
+                  <td>{jobLabel(job)}</td>
+                  <td>{job.studentGmail ?? "-"}</td>
+                  <td>{groupMap.get(job.groupId ?? "")?.name ?? "-"}</td>
+                  <td>
+                    <JobBadge status={job.status} />
+                  </td>
+                  <td>{job.attempts}</td>
+                  <td>{job.error ?? "-"}</td>
+                  <td className="row-actions">
+                    {job.status === "failed" || job.status === "needs_session" ? (
+                      <button className="mini-button" type="button" onClick={() => onRetryJob(job.id)}>
+                        Retry
+                      </button>
+                    ) : null}
+                    {job.status !== "done" ? (
+                      <button className="mini-button ghost" type="button" onClick={() => onCompleteJob(job.id)}>
+                        Done
+                      </button>
+                    ) : null}
+                  </td>
+                </tr>
+              ))
+            ) : (
+              <EmptyTableRow colSpan={7} label="Chưa có job automation." />
+            )}
+          </tbody>
+        </DataTable>
+      </section>
+    </>
+  );
+}
+
+function adminStatusLabel(status: AdminSdkState) {
+  if (status.state === "ready") return "ready";
+  if (status.state === "checking") return "checking";
+  return "error";
+}
+
+function AdminStatusInline({ status }: { status: AdminSdkState }) {
+  if (status.state === "ready") return <StatusBadge variant="success">Sẵn sàng</StatusBadge>;
+  if (status.state === "checking") return <StatusBadge variant="info">Đang kiểm tra</StatusBadge>;
+  return <StatusBadge variant="danger">Cần cấu hình</StatusBadge>;
+}
+
+function SettingsView({
+  state,
+  adminStatus,
+  onReset,
+  onRefreshAdminStatus,
+  adminNotice,
+}: {
+  state: AppState;
+  adminStatus: AdminSdkState;
+  onReset: () => void;
+  onRefreshAdminStatus: () => void;
+  adminNotice: string;
+}) {
+  const details = adminStatus.state === "ready" ? adminStatus.details : null;
+
+  return (
+    <>
+      <PageTitle title="Cài đặt" subtitle="Thông số vận hành và cấu hình Admin SDK." />
+      <div className="settings-grid">
+        <section className="panel settings-panel">
+          <PanelHeader title="Admin SDK" action={adminStatusLabel(adminStatus)} />
+          <div className="settings-row">
+            <span>Trạng thái</span>
+            <AdminStatusInline status={adminStatus} />
+          </div>
+          <div className="settings-row">
+            <span>Domain</span>
+            <strong>{details?.domain ?? "-"}</strong>
+          </div>
+          <div className="settings-row">
+            <span>Impersonate</span>
+            <strong>{details?.impersonateEmail ?? "-"}</strong>
+          </div>
+          <div className="settings-row">
+            <span>Service account</span>
+            <strong>{details?.serviceAccountEmail ?? "-"}</strong>
+          </div>
+          <div className="settings-row">
+            <span>Credential</span>
+            <strong>{details?.credentialSource ?? "-"}</strong>
+          </div>
+          {adminStatus.state === "error" ? (
+            <div className="admin-callout danger">
+              <AlertTriangle size={17} />
+              <span>{adminStatus.message}</span>
+            </div>
+          ) : null}
+          <button className="button secondary full" type="button" onClick={onRefreshAdminStatus}>
+            <RefreshCw size={17} />
+            <span>Kiểm tra Admin SDK</span>
+          </button>
+          {adminNotice ? <p className="status-note success">{adminNotice}</p> : null}
+        </section>
+
+        <section className="panel settings-panel">
+          <PanelHeader title="Thông số mặc định" action="Phase 1-2" />
+          <div className="settings-row">
+            <span>Hoa hồng mặc định</span>
+            <strong>{Math.round(state.settings.defaultCommissionRate * 100)}%</strong>
+          </div>
+          <div className="settings-row">
+            <span>Delay worker</span>
+            <strong>
+              {state.settings.minDelay}-{state.settings.maxDelay}s
+            </strong>
+          </div>
+          <div className="settings-row">
+            <span>Allowlist</span>
+            <strong>{state.settings.allowlistEmails.join(", ")}</strong>
+          </div>
+          <button className="button danger full" type="button" onClick={onReset}>
+            <RefreshCw size={17} />
+            <span>Xóa sạch dữ liệu</span>
+          </button>
+        </section>
+      </div>
+    </>
+  );
+}
+
+function TransactionRow({
+  enrollment,
+  state,
+  compact = false,
+  onTogglePayment,
+  onEnqueueJob,
+}: {
+  enrollment: Enrollment;
+  state: AppState;
+  compact?: boolean;
+  onTogglePayment: (id: string) => void;
+  onEnqueueJob?: (enrollment: Enrollment) => void;
+}) {
+  const student = state.students.find((item) => item.id === enrollment.studentId);
+  const ctv = state.ctvs.find((item) => item.id === enrollment.ctvId);
+  const group = state.groups.find((item) => item.id === enrollment.groupId);
+
+  if (compact) {
+    return (
+      <tr>
+        <td>
+          <strong>{student?.gmail}</strong>
+          <span className="table-subtext">{student?.name}</span>
+        </td>
+        <td>{ctv?.name}</td>
+        <td>{enrollment.courseType}</td>
+        <td className="numeric money-cell">{currency(enrollment.ownerShare)}</td>
+        <td>
+          <PaymentBadge status={enrollment.paymentStatus} />
+        </td>
+        <td className="row-actions">
+          <button className="mini-button" type="button" onClick={() => onTogglePayment(enrollment.id)}>
+            {enrollment.paymentStatus === "received" ? "Hoàn tác" : "Đã nhận"}
+          </button>
+        </td>
+      </tr>
+    );
+  }
+
+  return (
+    <tr>
+      <td>{shortDate(enrollment.date)}</td>
+      <td>
+        <strong>{student?.gmail}</strong>
+        <span className="table-subtext">{student?.name}</span>
+      </td>
+      <td>{ctv?.name}</td>
+      <td>{group?.name ?? enrollment.courseType}</td>
+      <td className="numeric money-cell">{currency(enrollment.tuition)}</td>
+      <td className="numeric money-cell debt">{currency(enrollment.ownerShare)}</td>
+      <td>
+        <button className="status-button" type="button" onClick={() => onTogglePayment(enrollment.id)}>
+          <PaymentBadge status={enrollment.paymentStatus} />
+        </button>
+      </td>
+      <td>
+        <StatusBadge variant="info">{group?.groupEmail ?? "Chưa gán"}</StatusBadge>
+      </td>
+      <td className="row-actions">
+        {onEnqueueJob ? (
+          <button className="mini-button" type="button" onClick={() => onEnqueueJob(enrollment)}>
+            <Send size={14} />
+            Queue
+          </button>
+        ) : null}
+      </td>
+    </tr>
+  );
+}
+
+function PaidEnrollmentModal({
+  state,
+  onClose,
+  onSubmit,
+}: {
+  state: AppState;
+  onClose: () => void;
+  onSubmit: (form: PaidFormState) => void;
+}) {
+  const paidGroups = state.groups.filter((group) => group.kind !== "trial");
+  const firstGroup = paidGroups[0] ?? state.groups[0];
+  const [form, setForm] = useState<PaidFormState>({
+    gmail: "",
+    studentName: "",
+    ctvId: state.ctvs[0]?.id ?? "",
+    groupId: firstGroup?.id ?? "",
+    courseType: firstGroup?.name ?? "",
+    tuition: String(firstGroup?.priceHint ?? 0),
+    date: todayISO(),
+    note: "",
+  });
+  const selectedCtv = state.ctvs.find((ctv) => ctv.id === form.ctvId) ?? state.ctvs[0];
+  const estimatedShare = ownerShare(Number(form.tuition) || 0, selectedCtv?.commissionRate ?? 0.5);
+
+  return (
+    <ModalShell title="Thêm giao dịch" onClose={onClose}>
+      <form
+        className="form-grid"
+        onSubmit={(event) => {
+          event.preventDefault();
+          onSubmit(form);
+        }}
+      >
+        <TextField label="Gmail học viên" value={form.gmail} required onChange={(gmail) => setForm({ ...form, gmail })} />
+        <TextField label="Tên học viên" value={form.studentName} onChange={(studentName) => setForm({ ...form, studentName })} />
+        <SelectField
+          label="CTV"
+          value={form.ctvId}
+          onChange={(ctvId) => setForm({ ...form, ctvId })}
+          options={state.ctvs.map((ctv) => ({ value: ctv.id, label: ctvDisplay(ctv) }))}
+        />
+        <SelectField
+          label="Nhóm / khóa"
+          value={form.groupId}
+          onChange={(groupId) => {
+            const group = state.groups.find((item) => item.id === groupId);
+            setForm({
+              ...form,
+              groupId,
+              courseType: group?.name ?? form.courseType,
+              tuition: String(group?.priceHint ?? form.tuition),
+            });
+          }}
+          options={paidGroups.map((group) => ({ value: group.id, label: `${group.name} · ${group.groupEmail}` }))}
+        />
+        <TextField label="Môn/Combo" value={form.courseType} required onChange={(courseType) => setForm({ ...form, courseType })} />
+        <TextField label="Học phí" value={form.tuition} type="number" required onChange={(tuition) => setForm({ ...form, tuition })} />
+        <TextField label="Ngày" value={form.date} type="date" required onChange={(date) => setForm({ ...form, date })} />
+        <TextField label="Ghi chú" value={form.note} onChange={(note) => setForm({ ...form, note })} />
+        <div className="form-summary">
+          <span>Snapshot hoa hồng</span>
+          <strong>{Math.round((selectedCtv?.commissionRate ?? 0.5) * 100)}%</strong>
+          <span>Anh nhận</span>
+          <strong>{currency(estimatedShare)}</strong>
+        </div>
+        <div className="modal-actions">
+          <button className="button ghost" type="button" onClick={onClose}>
+            <X size={17} />
+            <span>Hủy</span>
+          </button>
+          <button className="button primary" type="submit">
+            <Save size={17} />
+            <span>Lưu giao dịch</span>
+          </button>
+        </div>
+      </form>
+    </ModalShell>
+  );
+}
+
+function TrialEnrollmentModal({
+  state,
+  onClose,
+  onSubmit,
+}: {
+  state: AppState;
+  onClose: () => void;
+  onSubmit: (form: TrialFormState) => void;
+}) {
+  const trialGroups = state.groups.filter((group) => group.kind !== "paid");
+  const defaultGroup = trialGroups.find((group) => group.kind === "trial") ?? trialGroups[0] ?? state.groups[0];
+  const [form, setForm] = useState<TrialFormState>({
+    gmail: "",
+    studentName: "",
+    ctvId: state.ctvs[0]?.id ?? "",
+    groupId: defaultGroup?.id ?? "",
+    courseType: "Học thử",
+    date: todayISO(),
+    trialEndDate: addDaysISO(7),
+    note: "",
+  });
+
+  return (
+    <ModalShell title="Thêm học thử" onClose={onClose}>
+      <form
+        className="form-grid"
+        onSubmit={(event) => {
+          event.preventDefault();
+          onSubmit(form);
+        }}
+      >
+        <TextField label="Gmail học viên" value={form.gmail} required onChange={(gmail) => setForm({ ...form, gmail })} />
+        <TextField label="Tên học viên" value={form.studentName} onChange={(studentName) => setForm({ ...form, studentName })} />
+        <SelectField
+          label="CTV"
+          value={form.ctvId}
+          onChange={(ctvId) => setForm({ ...form, ctvId })}
+          options={state.ctvs.map((ctv) => ({ value: ctv.id, label: ctvDisplay(ctv) }))}
+        />
+        <SelectField
+          label="Google Group"
+          value={form.groupId}
+          onChange={(groupId) => setForm({ ...form, groupId })}
+          options={trialGroups.map((group) => ({ value: group.id, label: `${group.name} · ${group.groupEmail}` }))}
+        />
+        <TextField label="Môn/Combo thử" value={form.courseType} required onChange={(courseType) => setForm({ ...form, courseType })} />
+        <TextField label="Ngày học thử" value={form.date} type="date" required onChange={(date) => setForm({ ...form, date })} />
+        <TextField label="Ngày kết thúc" value={form.trialEndDate} type="date" required onChange={(trialEndDate) => setForm({ ...form, trialEndDate })} />
+        <TextField label="Ghi chú" value={form.note} onChange={(note) => setForm({ ...form, note })} />
+        <div className="modal-actions">
+          <button className="button ghost" type="button" onClick={onClose}>
+            <X size={17} />
+            <span>Hủy</span>
+          </button>
+          <button className="button primary" type="submit">
+            <Save size={17} />
+            <span>Lưu học thử</span>
+          </button>
+        </div>
+      </form>
+    </ModalShell>
+  );
+}
+
+function ModalShell({
+  title,
+  children,
+  onClose,
+}: {
+  title: string;
+  children: React.ReactNode;
+  onClose: () => void;
+}) {
+  return (
+    <div className="modal-backdrop" role="presentation">
+      <section className="modal-sheet" role="dialog" aria-modal="true" aria-labelledby="modal-title">
+        <div className="modal-head">
+          <h2 id="modal-title">{title}</h2>
+          <button className="icon-button" type="button" title="Đóng" onClick={onClose}>
+            <X size={18} />
+          </button>
+        </div>
+        {children}
+      </section>
+    </div>
+  );
+}
+
+function TextField({
+  label,
+  value,
+  onChange,
+  required = false,
+  type = "text",
+}: {
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+  required?: boolean;
+  type?: string;
+}) {
+  return (
+    <label className="field-label">
+      {label}
+      <input
+        className="input"
+        type={type}
+        value={value}
+        required={required}
+        onChange={(event) => onChange(event.target.value)}
+      />
+    </label>
+  );
+}
+
+function SelectField({
+  label,
+  value,
+  options,
+  onChange,
+}: {
+  label: string;
+  value: string;
+  options: Array<{ value: string; label: string }>;
+  onChange: (value: string) => void;
+}) {
+  return (
+    <label className="field-label">
+      {label}
+      <select className="select" value={value} onChange={(event) => onChange(event.target.value)}>
+        {options.map((option) => (
+          <option key={option.value} value={option.value}>
+            {option.label}
+          </option>
+        ))}
+      </select>
+    </label>
+  );
+}
+
+function PageTitle({ title, subtitle }: { title: string; subtitle: string }) {
+  return (
+    <div className="page-heading">
+      <div>
+        <h1>{title}</h1>
+        <p>{subtitle}</p>
+      </div>
+    </div>
+  );
+}
+
+function MetricCard({
+  label,
+  value,
+  icon: Icon,
+  tone,
+}: {
+  label: string;
+  value: string;
+  icon: LucideIcon;
+  tone: "blue" | "green" | "amber" | "slate";
+}) {
+  return (
+    <section className={`metric-card ${tone}`}>
+      <div className="metric-icon">
+        <Icon size={20} />
+      </div>
+      <span>{label}</span>
+      <strong>{value}</strong>
+    </section>
+  );
+}
+
+function PanelHeader({ title, action }: { title: string; action?: string }) {
+  return (
+    <div className="panel-header">
+      <h2>{title}</h2>
+      {action ? <span>{action}</span> : null}
+    </div>
+  );
+}
+
+function DataTable({ children }: { children: React.ReactNode }) {
+  return <div className="table-wrap"><table className="data-table">{children}</table></div>;
+}
+
+function EmptyState({ label }: { label: string }) {
+  return <div className="empty-state">{label}</div>;
+}
+
+function EmptyTableRow({ colSpan, label }: { colSpan: number; label: string }) {
+  return (
+    <tr className="empty-table-row">
+      <td colSpan={colSpan}>
+        <EmptyState label={label} />
+      </td>
+    </tr>
+  );
+}
+
+function FilterBar({
+  state,
+  ctvFilter,
+  onCtvFilter,
+  right,
+}: {
+  state: AppState;
+  ctvFilter: string;
+  onCtvFilter: (id: string) => void;
+  right?: React.ReactNode;
+}) {
+  return (
+    <div className="filter-bar">
+      <label className="inline-filter">
+        <SlidersHorizontal size={17} />
+        <select value={ctvFilter} onChange={(event) => onCtvFilter(event.target.value)}>
+          <option value="all">Tất cả CTV</option>
+          {state.ctvs.map((ctv) => (
+            <option key={ctv.id} value={ctv.id}>
+              {ctv.name}
+            </option>
+          ))}
+        </select>
+      </label>
+      {right}
+    </div>
+  );
+}
+
+function Segmented({
+  value,
+  options,
+  onChange,
+}: {
+  value: string;
+  options: Array<{ value: string; label: string }>;
+  onChange: (value: string) => void;
+}) {
+  return (
+    <div className="segmented" role="group">
+      {options.map((option) => (
+        <button
+          key={option.value}
+          type="button"
+          className={value === option.value ? "active" : ""}
+          onClick={() => onChange(option.value)}
+        >
+          {option.label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function PaymentBadge({ status }: { status: PaymentStatus }) {
+  return (
+    <StatusBadge variant={status === "received" ? "success" : "warning"}>
+      {status === "received" ? "Đã trả" : "Chưa trả"}
+    </StatusBadge>
+  );
+}
+
+function JobBadge({ status }: { status: JobStatus }) {
+  const variant =
+    status === "done"
+      ? "success"
+      : status === "failed" || status === "needs_session"
+        ? "danger"
+        : status === "running"
+          ? "info"
+          : "warning";
+  return <StatusBadge variant={variant}>{statusLabel(status)}</StatusBadge>;
+}
+
+function StatusBadge({
+  variant,
+  children,
+}: {
+  variant: "success" | "warning" | "danger" | "info";
+  children: React.ReactNode;
+}) {
+  return <span className={`status-badge ${variant}`}>{children}</span>;
+}
+
+function InlineStat({ label, value, strong = false }: { label: string; value: string; strong?: boolean }) {
+  return (
+    <div className={strong ? "inline-stat strong" : "inline-stat"}>
+      <span>{label}</span>
+      <strong>{value}</strong>
+    </div>
+  );
+}
+
+function TrendChart({ data }: { data: Array<{ date: string; revenue: number; share: number }> }) {
+  if (!data.length) {
+    return <EmptyState label="Chưa có doanh thu." />;
+  }
+
+  const max = Math.max(...data.map((item) => item.revenue), 1);
+  const points = data
+    .map((item, index) => {
+      const x = data.length === 1 ? 50 : 6 + (index / (data.length - 1)) * 88;
+      const y = 86 - (item.revenue / max) * 62;
+      return `${x},${y}`;
+    })
+    .join(" ");
+
+  return (
+    <div className="trend-chart">
+      <svg viewBox="0 0 100 100" role="img" aria-label="Biểu đồ doanh thu">
+        <path d="M6 86 H94" className="chart-axis" />
+        <path d="M6 60 H94" className="chart-grid" />
+        <path d="M6 34 H94" className="chart-grid" />
+        <polyline points={points} className="chart-line" />
+        {data.map((item, index) => {
+          const x = data.length === 1 ? 50 : 6 + (index / (data.length - 1)) * 88;
+          const y = 86 - (item.revenue / max) * 62;
+          return <circle key={item.date} cx={x} cy={y} r="1.8" className="chart-dot" />;
+        })}
+      </svg>
+      <div className="chart-legend">
+        {data.map((item) => (
+          <div key={item.date}>
+            <span>{shortDate(item.date).slice(0, 5)}</span>
+            <strong>{currency(item.share)}</strong>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function AdminStatusCard({ status }: { status: AdminSdkState }) {
+  const account =
+    status.state === "ready"
+      ? status.details.impersonateEmail
+      : status.state === "checking"
+        ? "Đang kiểm tra"
+        : "Cần cấu hình";
+
+  return (
+    <div className="admin-status-card">
+      <ShieldCheck size={18} />
+      <div>
+        <strong>Admin SDK</strong>
+        <span>{account}</span>
+        <AdminStatusInline status={status} />
+      </div>
+    </div>
+  );
+}
+
+function UserCard({ session }: { session: ClientSession }) {
+  return (
+    <div className="admin-status-card user-card">
+      <div className="user-avatar">{session.name.slice(0, 1).toUpperCase()}</div>
+      <div>
+        <strong>{session.name}</strong>
+        <span>{session.email}</span>
+        <StatusBadge variant={session.role === "admin" ? "info" : "success"}>
+          {session.role === "admin" ? "Quản trị viên" : "Cộng tác viên"}
+        </StatusBadge>
+      </div>
+      <a className="user-logout" href="/api/auth/logout" title="Đăng xuất">
+        <LogOut size={16} />
+      </a>
+    </div>
+  );
+}
+
+function createJob(type: GroupJob["type"], groupId?: string, studentGmail?: string): GroupJob {
+  return {
+    id: makeId("job"),
+    type,
+    groupId,
+    studentGmail,
+    status: "queued",
+    attempts: 0,
+    createdAt: new Date().toISOString(),
+  };
+}
+
+function addDaysISO(days: number) {
+  const date = new Date();
+  date.setDate(date.getDate() + days);
+  return date.toISOString().slice(0, 10);
+}
+
+function matchesQuery(enrollment: Enrollment, query: string, state: AppState) {
+  const normalized = query.trim().toLowerCase();
+  if (!normalized) return true;
+  const student = state.students.find((item) => item.id === enrollment.studentId);
+  const ctv = state.ctvs.find((item) => item.id === enrollment.ctvId);
+  const group = state.groups.find((item) => item.id === enrollment.groupId);
+  const haystack = [
+    student?.gmail,
+    student?.name,
+    ctv?.name,
+    ctv?.code,
+    group?.name,
+    group?.groupEmail,
+    enrollment.courseType,
+  ]
+    .filter(Boolean)
+    .join(" ")
+    .toLowerCase();
+
+  return haystack.includes(normalized);
+}
+
+function normalizePersistedState(parsed: AppState): AppState {
+  const groups = (parsed.groups ?? []).filter((group) => group.id && group.groupEmail);
+  const groupIds = new Set(groups.map((group) => group.id));
+
+  return {
+    ...seedState,
+    ...parsed,
+    settings: {
+      ...seedState.settings,
+      ...parsed.settings,
+    },
+    groups,
+    groupMembers: (parsed.groupMembers ?? []).filter((member) => groupIds.has(member.groupId)),
+    jobs: (parsed.jobs ?? []).filter((job) => !job.groupId || groupIds.has(job.groupId)),
+  };
+}
+
+function buildModelShape(_state: AppState) {
+  return {
+    ctvMap: byId(_state.ctvs),
+    studentMap: byId(_state.students),
+    groupMap: byId(_state.groups),
+    summary: metrics(_state),
+    ctvDebt: debtByCtv(_state),
+    paid: paidEnrollments(_state),
+    trials: trialEnrollments(_state),
+    trend: trendSeries(_state),
+  };
+}

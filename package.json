@@ -1,0 +1,29 @@
+{
+  "name": "quan-ly-khoa-hoc",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "clean": "node -e \"require('fs').rmSync('.next',{recursive:true,force:true})\"",
+    "dev": "npm run clean && next dev",
+    "build": "next build",
+    "start": "next start",
+    "create-group-share-drive": "node scripts/create-group-share-drive.mjs",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "googleapis": "^144.0.0",
+    "lucide-react": "^0.468.0",
+    "next": "^15.3.3",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.2",
+    "@types/react": "^19.0.2",
+    "@types/react-dom": "^19.0.2",
+    "typescript": "^5.7.2"
+  },
+  "overrides": {
+    "postcss": "8.5.10"
+  }
+}
