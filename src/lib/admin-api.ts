@@ -1,4 +1,11 @@
-import type { ApiAdminStatus, ApiGroup, ApiGroupRole, ApiMember } from "./admin-types";
+import type {
+  ApiAdminStatus,
+  ApiGroup,
+  ApiGroupRole,
+  ApiMember,
+  TrialRecord,
+  TrialStatus,
+} from "./admin-types";
 import type { CourseGroup, GroupMember, GroupRole } from "./types";
 
 // ===== Client gọi tới backend /api/admin/* =====
@@ -68,6 +75,42 @@ export async function apiUpdateRole(
   );
   const data = await jsonOrThrow<{ member: ApiMember }>(res);
   return data.member;
+}
+
+// ===== Kho học thử dùng chung (Google Sheet qua /api/trials) =====
+
+export async function fetchTrialRecords(): Promise<TrialRecord[]> {
+  const res = await fetch("/api/trials", { cache: "no-store" });
+  const data = await jsonOrThrow<{ records: TrialRecord[] }>(res);
+  return data.records;
+}
+
+/** Thêm học viên vào nhóm học thử + ghi khóa học thử lên Sheet (gắn email CTV đang đăng nhập). */
+export async function apiAddTrial(
+  groupEmail: string,
+  email: string,
+  name: string,
+  trialCourse: string,
+): Promise<{ member: ApiMember; record: TrialRecord }> {
+  const res = await fetch("/api/trials", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ groupKey: groupEmail, email, name, trialCourse }),
+  });
+  return jsonOrThrow<{ member: ApiMember; record: TrialRecord }>(res);
+}
+
+export async function apiUpdateTrialStatus(
+  groupEmail: string,
+  email: string,
+  status: TrialStatus,
+): Promise<void> {
+  const res = await fetch("/api/trials", {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ groupKey: groupEmail, email, status }),
+  });
+  await jsonOrThrow<{ ok: boolean }>(res);
 }
 
 // ===== Mapping giữa DTO của Admin SDK và model của app =====

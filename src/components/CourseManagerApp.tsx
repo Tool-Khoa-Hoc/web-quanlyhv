@@ -55,15 +55,18 @@ import {
 import { seedState } from "@/lib/seed-data";
 import {
   apiAddMember,
+  apiAddTrial,
   apiGroupToCourseGroup,
   apiRemoveMember,
   apiUpdateRole,
+  apiUpdateTrialStatus,
   fetchAdminStatus,
   fetchGroups,
   fetchMembers,
+  fetchTrialRecords,
   roleFromApi,
 } from "@/lib/admin-api";
-import type { ApiAdminStatus, ClientSession } from "@/lib/admin-types";
+import type { ApiAdminStatus, ClientSession, TrialRecord, TrialStatus } from "@/lib/admin-types";
 import type {
   AppState,
   CourseGroup,
@@ -95,7 +98,7 @@ const navItems: Array<{ key: ViewKey; label: string; icon: LucideIcon }> = [
   { key: "jobs", label: "Jobs", icon: ListChecks },
   { key: "settings", label: "Cài đặt", icon: Settings },
 ];
-const mobileNavKeys: ViewKey[] = ["dashboard", "transactions", "trials", "jobs"];
+const mobileNavKeys: ViewKey[] = ["dashboard", "transactions", "trials", "groups"];
 const mobileNavItems = mobileNavKeys
   .map((key) => navItems.find((item) => item.key === key))
   .filter((item): item is (typeof navItems)[number] => Boolean(item));
@@ -157,6 +160,16 @@ export function CourseManagerApp({ session }: { session: ClientSession }) {
   const [trialFilter, setTrialFilter] = useState<"all" | TrialResult>("all");
   const [adminNotice, setAdminNotice] = useState("");
   const [adminStatus, setAdminStatus] = useState<AdminSdkState>({ state: "checking" });
+  // Kho học thử dùng chung (Google Sheet) — đồng bộ giữa CTV và admin.
+  const [trialRecords, setTrialRecords] = useState<TrialRecord[]>([]);
+
+  const loadTrialRecords = useCallback(async () => {
+    try {
+      setTrialRecords(await fetchTrialRecords());
+    } catch {
+      // Sheet chưa cấu hình hoặc lỗi mạng: bỏ qua, danh sách rỗng vẫn dùng được.
+    }
+  }, []);
 
   const refreshAdminStatus = useCallback(async () => {
     setAdminStatus({ state: "checking" });
@@ -174,6 +187,12 @@ export function CourseManagerApp({ session }: { session: ClientSession }) {
   useEffect(() => {
     if (isAdmin) void refreshAdminStatus();
   }, [isAdmin, refreshAdminStatus]);
+
+  // Nạp kho học thử chung cho cả admin lẫn CTV (sau khi hydrate).
+  useEffect(() => {
+    if (!hydrated) return;
+    void loadTrialRecords();
+  }, [hydrated, loadTrialRecords]);
 
   useEffect(() => {
     try {
@@ -378,7 +397,13 @@ export function CourseManagerApp({ session }: { session: ClientSession }) {
       jobs: [job, ...withStudent.state.jobs],
     });
     if (trialGroup?.groupEmail) {
-      settleMemberJob(job.id, apiAddMember(trialGroup.groupEmail, form.gmail, "member"));
+      // Ghi lên Sheet (kho chung) để CTV cũng thấy + gắn người thêm.
+      settleMemberJob(
+        job.id,
+        apiAddTrial(trialGroup.groupEmail, form.gmail, form.studentName, form.courseType).then(
+          loadTrialRecords,
+        ),
+      );
     }
     setModal(null);
     setActiveView("trials");
@@ -406,6 +431,17 @@ export function CourseManagerApp({ session }: { session: ClientSession }) {
         item.id === enrollmentId ? { ...item, trialResult: result } : item,
       ),
     }));
+  }
+
+  // Đổi trạng thái học thử trên kho chung (Sheet) — dùng cho bảng đồng bộ ở admin.
+  async function updateServerTrialStatus(groupEmail: string, email: string, status: TrialStatus) {
+    try {
+      await apiUpdateTrialStatus(groupEmail, email, status);
+      await loadTrialRecords();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      setAdminNotice(`Không đổi được trạng thái học thử: ${message}`);
+    }
   }
 
   function convertTrial(enrollmentId: string) {
@@ -600,6 +636,7 @@ export function CourseManagerApp({ session }: { session: ClientSession }) {
 
   // Nạp thành viên thật của 1 nhóm (gọi khi mở "Quản lý thành viên").
   async function loadGroupMembers(group: CourseGroup) {
+    void loadTrialRecords(); // làm tươi khóa học thử để bảng thành viên hiển thị đúng
     try {
       const apiMembers = await fetchMembers(group.groupEmail);
       setState((current) => ({
@@ -636,15 +673,37 @@ export function CourseManagerApp({ session }: { session: ClientSession }) {
   }
 
   // Thêm thành viên THẬT qua Admin SDK rồi mới cập nhật state khi thành công.
-  async function addGroupMember(groupId: string, email: string, name: string, role: GroupRole) {
+  // trialCourse có giá trị (hoặc nhóm là "trial") → đi luồng /api/trials để ghi
+  // khóa học thử lên Sheet chung (đồng bộ CTV ↔ admin) + gắn email người thêm.
+  async function addGroupMember(
+    groupId: string,
+    email: string,
+    name: string,
+    role: GroupRole,
+    trialCourse?: string,
+  ) {
     const normalizedEmail = email.trim().toLowerCase();
     if (!normalizedEmail) return;
     const group = state.groups.find((g) => g.id === groupId);
     if (!group) return;
+    const isTrial = group.kind === "trial" || Boolean(trialCourse?.trim());
     const job = createJob("add_member", groupId, normalizedEmail);
     setState((current) => ({ ...current, jobs: [{ ...job, status: "running" }, ...current.jobs] }));
     try {
-      const apiMember = await apiAddMember(group.groupEmail, normalizedEmail, role);
+      let resolvedRole: GroupRole;
+      if (isTrial) {
+        const { member } = await apiAddTrial(
+          group.groupEmail,
+          normalizedEmail,
+          name,
+          trialCourse?.trim() ?? "",
+        );
+        resolvedRole = roleFromApi(member.role);
+        await loadTrialRecords();
+      } else {
+        const apiMember = await apiAddMember(group.groupEmail, normalizedEmail, role);
+        resolvedRole = roleFromApi(apiMember.role);
+      }
       setState((current) => {
         const exists = current.groupMembers.some(
           (item) => item.groupId === groupId && item.email === normalizedEmail,
@@ -654,7 +713,7 @@ export function CourseManagerApp({ session }: { session: ClientSession }) {
           groupId,
           email: normalizedEmail,
           name: name.trim() || undefined,
-          role: roleFromApi(apiMember.role),
+          role: resolvedRole,
           joinDate: todayISO(),
         };
         return {
@@ -829,13 +888,9 @@ export function CourseManagerApp({ session }: { session: ClientSession }) {
                 <button className="icon-button" title="Xóa bộ lọc" type="button" onClick={resetFilters}>
                   <Filter size={18} />
                 </button>
-                <button className="button ghost" type="button" onClick={() => openEnrollmentModal("trial")}>
-                  <FlaskConical size={17} />
-                  <span>Thêm học thử</span>
-                </button>
                 <button className="button primary" type="button" onClick={() => openEnrollmentModal("transaction")}>
                   <Plus size={17} />
-                  <span>Thêm giao dịch</span>
+                  <span>Thêm</span>
                 </button>
               </>
             ) : null}
@@ -884,12 +939,14 @@ export function CourseManagerApp({ session }: { session: ClientSession }) {
             <TrialsView
               state={state}
               rows={filteredTrials}
+              trialRecords={trialRecords}
               ctvFilter={ctvFilter}
               trialFilter={trialFilter}
               onCtvFilter={setCtvFilter}
               onTrialFilter={setTrialFilter}
               onUpdateResult={updateTrialResult}
               onConvertTrial={convertTrial}
+              onUpdateServerStatus={updateServerTrialStatus}
             />
           ) : null}
 
@@ -897,6 +954,7 @@ export function CourseManagerApp({ session }: { session: ClientSession }) {
             <CtvView
               state={state}
               model={model}
+              trialRecords={trialRecords}
               onAddCtv={addCtv}
               onRateChange={updateCtvRate}
               onMarkReceived={markCtvReceived}
@@ -908,6 +966,7 @@ export function CourseManagerApp({ session }: { session: ClientSession }) {
             <GroupsView
               state={state}
               isAdmin={isAdmin}
+              trialRecords={trialRecords}
               onAddGroup={addGroup}
               onDeleteGroup={deleteGroup}
               onSyncFromGoogle={syncFromGoogle}
@@ -950,18 +1009,13 @@ export function CourseManagerApp({ session }: { session: ClientSession }) {
         </nav>
       ) : null}
 
-      {modal === "transaction" ? (
-        <PaidEnrollmentModal
+      {modal ? (
+        <EnrollmentModal
           state={state}
+          initialType={modal === "trial" ? "trial" : "paid"}
           onClose={() => setModal(null)}
-          onSubmit={addPaidEnrollment}
-        />
-      ) : null}
-      {modal === "trial" ? (
-        <TrialEnrollmentModal
-          state={state}
-          onClose={() => setModal(null)}
-          onSubmit={addTrialEnrollment}
+          onSubmitPaid={addPaidEnrollment}
+          onSubmitTrial={addTrialEnrollment}
         />
       ) : null}
     </div>
@@ -1177,21 +1231,25 @@ function TransactionsView({
 function TrialsView({
   state,
   rows,
+  trialRecords,
   ctvFilter,
   trialFilter,
   onCtvFilter,
   onTrialFilter,
   onUpdateResult,
   onConvertTrial,
+  onUpdateServerStatus,
 }: {
   state: AppState;
   rows: Enrollment[];
+  trialRecords: TrialRecord[];
   ctvFilter: string;
   trialFilter: "all" | TrialResult;
   onCtvFilter: (id: string) => void;
   onTrialFilter: (status: "all" | TrialResult) => void;
   onUpdateResult: (id: string, result: TrialResult) => void;
   onConvertTrial: (id: string) => void;
+  onUpdateServerStatus: (groupEmail: string, email: string, status: TrialStatus) => void;
 }) {
   const studentMap = byId(state.students);
   const ctvMap = byId(state.ctvs);
@@ -1202,6 +1260,66 @@ function TrialsView({
         title="Học thử"
         subtitle="Quản lý học thử, kết quả chuyển đổi và việc xóa khỏi nhóm học thử khi cần."
       />
+
+      <section className="panel">
+        <PanelHeader
+          title="Học thử đồng bộ (CTV ↔ Admin)"
+          action={`${trialRecords.length} bản ghi từ Google Sheet`}
+        />
+        <DataTable>
+          <thead>
+            <tr>
+              <th>Học viên</th>
+              <th>Khóa học thử</th>
+              <th>CTV (email)</th>
+              <th>Nhóm</th>
+              <th>Trạng thái</th>
+            </tr>
+          </thead>
+          <tbody>
+            {trialRecords.length ? (
+              trialRecords.map((record) => (
+                <tr key={`${record.groupEmail}-${record.studentEmail}`}>
+                  <td>
+                    <strong>{record.studentEmail}</strong>
+                    <span className="table-subtext">{record.studentName || "-"}</span>
+                  </td>
+                  <td>{record.trialCourse || "-"}</td>
+                  <td>{record.ctvEmail || "-"}</td>
+                  <td>{record.groupEmail}</td>
+                  <td>
+                    <select
+                      className="select compact"
+                      value={
+                        ["dang_thu", "da_dang_ky", "khong_dang_ky"].includes(record.status)
+                          ? record.status
+                          : "dang_thu"
+                      }
+                      onChange={(event) =>
+                        onUpdateServerStatus(
+                          record.groupEmail,
+                          record.studentEmail,
+                          event.target.value as TrialStatus,
+                        )
+                      }
+                      aria-label={`Cập nhật trạng thái học thử của ${record.studentEmail}`}
+                    >
+                      <option value="dang_thu">Đang thử</option>
+                      <option value="da_dang_ky">Đã đăng ký</option>
+                      <option value="khong_dang_ky">Không đăng ký</option>
+                    </select>
+                  </td>
+                </tr>
+              ))
+            ) : (
+              <EmptyTableRow
+                colSpan={5}
+                label="Chưa có học thử đồng bộ. CTV thêm học viên kèm 'Khóa học thử' sẽ hiện ở đây."
+              />
+            )}
+          </tbody>
+        </DataTable>
+      </section>
       <FilterBar
         state={state}
         ctvFilter={ctvFilter}
@@ -1280,17 +1398,40 @@ function TrialsView({
 function CtvView({
   state,
   model,
+  trialRecords,
   onAddCtv,
   onRateChange,
   onMarkReceived,
 }: {
   state: AppState;
   model: ReturnType<typeof buildModelShape>;
+  trialRecords: TrialRecord[];
   onAddCtv: (form: CtvFormState) => void;
   onRateChange: (ctvId: string, rate: number) => void;
   onMarkReceived: (ctvId: string) => void;
 }) {
   const [showAddCtv, setShowAddCtv] = useState(false);
+
+  // Gom CTV theo email domain thật (người đăng nhập đã thêm học thử) từ Sheet.
+  const ctvByEmail = new Map<
+    string,
+    { email: string; name: string; count: number; courses: Set<string> }
+  >();
+  for (const record of trialRecords) {
+    const key = record.ctvEmail.trim().toLowerCase();
+    if (!key) continue;
+    const entry = ctvByEmail.get(key) ?? {
+      email: record.ctvEmail,
+      name: record.ctvName,
+      count: 0,
+      courses: new Set<string>(),
+    };
+    entry.count += 1;
+    if (record.trialCourse) entry.courses.add(record.trialCourse);
+    if (!entry.name && record.ctvName) entry.name = record.ctvName;
+    ctvByEmail.set(key, entry);
+  }
+  const ctvAccounts = Array.from(ctvByEmail.values()).sort((a, b) => b.count - a.count);
 
   return (
     <>
@@ -1304,6 +1445,43 @@ function CtvView({
           <span>Thêm CTV</span>
         </button>
       </div>
+
+      <section className="panel">
+        <PanelHeader
+          title="CTV theo tài khoản domain"
+          action={`${ctvAccounts.length} CTV đã thêm học thử`}
+        />
+        <DataTable>
+          <thead>
+            <tr>
+              <th>Email (domain)</th>
+              <th>Tên</th>
+              <th className="numeric">Số học viên thử</th>
+              <th>Khóa đã thêm</th>
+            </tr>
+          </thead>
+          <tbody>
+            {ctvAccounts.length ? (
+              ctvAccounts.map((account) => (
+                <tr key={account.email}>
+                  <td>
+                    <strong>{account.email}</strong>
+                  </td>
+                  <td>{account.name || "-"}</td>
+                  <td className="numeric">{account.count}</td>
+                  <td>{Array.from(account.courses).join(", ") || "-"}</td>
+                </tr>
+              ))
+            ) : (
+              <EmptyTableRow
+                colSpan={4}
+                label="Chưa có CTV nào thêm học thử (đồng bộ từ Google Sheet)."
+              />
+            )}
+          </tbody>
+        </DataTable>
+      </section>
+
       <div className="ctv-grid">
         {model.ctvDebt.map((row) => (
           <section className="panel ctv-card" key={row.ctv.id}>
@@ -1437,6 +1615,7 @@ function StudentsView({ state }: { state: AppState }) {
 function GroupsView({
   state,
   isAdmin,
+  trialRecords,
   onAddGroup,
   onDeleteGroup,
   onSyncFromGoogle,
@@ -1447,11 +1626,18 @@ function GroupsView({
 }: {
   state: AppState;
   isAdmin: boolean;
+  trialRecords: TrialRecord[];
   onAddGroup: (form: GroupFormState) => void;
   onDeleteGroup: (groupId: string) => void;
   onSyncFromGoogle: () => void;
   onOpenGroup: (group: CourseGroup) => void;
-  onAddMember: (groupId: string, email: string, name: string, role: GroupRole) => void | Promise<void>;
+  onAddMember: (
+    groupId: string,
+    email: string,
+    name: string,
+    role: GroupRole,
+    trialCourse?: string,
+  ) => void | Promise<void>;
   onRemoveMember: (memberId: string) => void;
   onUpdateRole: (memberId: string, role: GroupRole) => void;
 }) {
@@ -1601,6 +1787,11 @@ function GroupsView({
           group={activeGroup}
           members={membersByGroup(state, activeGroup.id)}
           isAdmin={isAdmin}
+          trialRecords={trialRecords.filter(
+            (record) =>
+              record.groupEmail.trim().toLowerCase() ===
+              activeGroup.groupEmail.trim().toLowerCase(),
+          )}
           onClose={() => setActiveGroupId(null)}
           onAddMember={onAddMember}
           onRemoveMember={onRemoveMember}
@@ -1615,6 +1806,7 @@ function GroupMembersModal({
   group,
   members,
   isAdmin,
+  trialRecords,
   onClose,
   onAddMember,
   onRemoveMember,
@@ -1623,16 +1815,30 @@ function GroupMembersModal({
   group: CourseGroup;
   members: AppState["groupMembers"];
   isAdmin: boolean;
+  trialRecords: TrialRecord[];
   onClose: () => void;
-  onAddMember: (groupId: string, email: string, name: string, role: GroupRole) => void | Promise<void>;
+  onAddMember: (
+    groupId: string,
+    email: string,
+    name: string,
+    role: GroupRole,
+    trialCourse?: string,
+  ) => void | Promise<void>;
   onRemoveMember: (memberId: string) => void;
   onUpdateRole: (memberId: string, role: GroupRole) => void;
 }) {
   const [email, setEmail] = useState("");
   const [name, setName] = useState("");
   const [role, setRole] = useState<GroupRole>("member");
+  const [trialCourse, setTrialCourse] = useState("");
   const [adding, setAdding] = useState(false);
   const [error, setError] = useState("");
+
+  // Nhóm học thử (hoặc CTV — chỉ thao tác nhóm học thử) → cần ô "Khóa học thử".
+  const showTrial = group.kind === "trial" || !isAdmin;
+  const courseByEmail = new Map(
+    trialRecords.map((record) => [record.studentEmail.trim().toLowerCase(), record.trialCourse]),
+  );
 
   async function submit(event: FormEvent) {
     event.preventDefault();
@@ -1640,10 +1846,11 @@ function GroupMembersModal({
     setError("");
     setAdding(true);
     try {
-      await onAddMember(group.id, email, name, role);
+      await onAddMember(group.id, email, name, role, showTrial ? trialCourse : undefined);
       setEmail("");
       setName("");
       setRole("member");
+      setTrialCourse("");
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
@@ -1673,6 +1880,15 @@ function GroupMembersModal({
             value={name}
             onChange={(event) => setName(event.target.value)}
           />
+          {showTrial ? (
+            <input
+              className="input"
+              type="text"
+              placeholder="Khóa học thử"
+              value={trialCourse}
+              onChange={(event) => setTrialCourse(event.target.value)}
+            />
+          ) : null}
           {isAdmin ? (
             <select
               className="select compact"
@@ -1697,6 +1913,7 @@ function GroupMembersModal({
               <tr>
                 <th>Email</th>
                 <th>Tên</th>
+                {showTrial ? <th>Khóa học thử</th> : null}
                 <th>Role</th>
                 <th></th>
               </tr>
@@ -1709,6 +1926,11 @@ function GroupMembersModal({
                       <strong>{member.email}</strong>
                     </td>
                     <td data-label="Tên">{member.name ?? "-"}</td>
+                    {showTrial ? (
+                      <td data-label="Khóa học thử">
+                        {courseByEmail.get(member.email.trim().toLowerCase()) || "-"}
+                      </td>
+                    ) : null}
                     <td data-label="Role">
                       {isAdmin ? (
                         <select
@@ -1752,7 +1974,10 @@ function GroupMembersModal({
                   </tr>
                 ))
               ) : (
-                <EmptyTableRow colSpan={4} label="Chưa có thành viên. Thêm email phía trên." />
+                <EmptyTableRow
+                  colSpan={showTrial ? 5 : 4}
+                  label="Chưa có thành viên. Thêm email phía trên."
+                />
               )}
             </tbody>
           </table>
@@ -2111,117 +2336,98 @@ function TransactionRow({
   );
 }
 
-function PaidEnrollmentModal({
+// Modal gộp: 1 nút "Thêm" → chọn loại Trả phí / Học thử trong cùng form.
+function EnrollmentModal({
   state,
+  initialType,
   onClose,
-  onSubmit,
+  onSubmitPaid,
+  onSubmitTrial,
 }: {
   state: AppState;
+  initialType: "paid" | "trial";
   onClose: () => void;
-  onSubmit: (form: PaidFormState) => void;
+  onSubmitPaid: (form: PaidFormState) => void;
+  onSubmitTrial: (form: TrialFormState) => void;
 }) {
+  const [type, setType] = useState<"paid" | "trial">(initialType);
+
   const paidGroups = state.groups.filter((group) => group.kind !== "trial");
-  const firstGroup = paidGroups[0] ?? state.groups[0];
-  const [form, setForm] = useState<PaidFormState>({
+  const trialGroups = state.groups.filter((group) => group.kind !== "paid");
+  const groupsForType = type === "paid" ? paidGroups : trialGroups;
+  const firstPaid = paidGroups[0] ?? state.groups[0];
+  const firstTrial =
+    trialGroups.find((group) => group.kind === "trial") ?? trialGroups[0] ?? state.groups[0];
+  const firstGroup = type === "paid" ? firstPaid : firstTrial;
+
+  const [form, setForm] = useState({
     gmail: "",
     studentName: "",
     ctvId: state.ctvs[0]?.id ?? "",
     groupId: firstGroup?.id ?? "",
-    courseType: firstGroup?.name ?? "",
-    tuition: String(firstGroup?.priceHint ?? 0),
-    date: todayISO(),
-    note: "",
-  });
-  const selectedCtv = state.ctvs.find((ctv) => ctv.id === form.ctvId) ?? state.ctvs[0];
-  const estimatedShare = ownerShare(Number(form.tuition) || 0, selectedCtv?.commissionRate ?? 0.5);
-
-  return (
-    <ModalShell title="Thêm giao dịch" onClose={onClose}>
-      <form
-        className="form-grid"
-        onSubmit={(event) => {
-          event.preventDefault();
-          onSubmit(form);
-        }}
-      >
-        <TextField label="Gmail học viên" value={form.gmail} required onChange={(gmail) => setForm({ ...form, gmail })} />
-        <TextField label="Tên học viên" value={form.studentName} onChange={(studentName) => setForm({ ...form, studentName })} />
-        <SelectField
-          label="CTV"
-          value={form.ctvId}
-          onChange={(ctvId) => setForm({ ...form, ctvId })}
-          options={state.ctvs.map((ctv) => ({ value: ctv.id, label: ctvDisplay(ctv) }))}
-        />
-        <SelectField
-          label="Nhóm / khóa"
-          value={form.groupId}
-          onChange={(groupId) => {
-            const group = state.groups.find((item) => item.id === groupId);
-            setForm({
-              ...form,
-              groupId,
-              courseType: group?.name ?? form.courseType,
-              tuition: String(group?.priceHint ?? form.tuition),
-            });
-          }}
-          options={paidGroups.map((group) => ({ value: group.id, label: `${group.name} · ${group.groupEmail}` }))}
-        />
-        <TextField label="Môn/Combo" value={form.courseType} required onChange={(courseType) => setForm({ ...form, courseType })} />
-        <TextField label="Học phí" value={form.tuition} type="number" required onChange={(tuition) => setForm({ ...form, tuition })} />
-        <TextField label="Ngày" value={form.date} type="date" required onChange={(date) => setForm({ ...form, date })} />
-        <TextField label="Ghi chú" value={form.note} onChange={(note) => setForm({ ...form, note })} />
-        <div className="form-summary">
-          <span>Snapshot hoa hồng</span>
-          <strong>{Math.round((selectedCtv?.commissionRate ?? 0.5) * 100)}%</strong>
-          <span>Anh nhận</span>
-          <strong>{currency(estimatedShare)}</strong>
-        </div>
-        <div className="modal-actions">
-          <button className="button ghost" type="button" onClick={onClose}>
-            <X size={17} />
-            <span>Hủy</span>
-          </button>
-          <button className="button primary" type="submit">
-            <Save size={17} />
-            <span>Lưu giao dịch</span>
-          </button>
-        </div>
-      </form>
-    </ModalShell>
-  );
-}
-
-function TrialEnrollmentModal({
-  state,
-  onClose,
-  onSubmit,
-}: {
-  state: AppState;
-  onClose: () => void;
-  onSubmit: (form: TrialFormState) => void;
-}) {
-  const trialGroups = state.groups.filter((group) => group.kind !== "paid");
-  const defaultGroup = trialGroups.find((group) => group.kind === "trial") ?? trialGroups[0] ?? state.groups[0];
-  const [form, setForm] = useState<TrialFormState>({
-    gmail: "",
-    studentName: "",
-    ctvId: state.ctvs[0]?.id ?? "",
-    groupId: defaultGroup?.id ?? "",
-    courseType: "Học thử",
+    courseType: type === "paid" ? firstGroup?.name ?? "" : "Học thử",
+    tuition: String(firstPaid?.priceHint ?? 0),
     date: todayISO(),
     trialEndDate: addDaysISO(7),
     note: "",
   });
 
+  // Đổi loại → đặt lại nhóm + môn/combo + học phí mặc định cho loại đó.
+  function switchType(next: "paid" | "trial") {
+    if (next === type) return;
+    const defaultGroup = next === "paid" ? firstPaid : firstTrial;
+    setType(next);
+    setForm((current) => ({
+      ...current,
+      groupId: defaultGroup?.id ?? "",
+      courseType: next === "paid" ? defaultGroup?.name ?? "" : "Học thử",
+      tuition: String(defaultGroup?.priceHint ?? current.tuition),
+    }));
+  }
+
+  const selectedCtv = state.ctvs.find((ctv) => ctv.id === form.ctvId) ?? state.ctvs[0];
+  const estimatedShare = ownerShare(Number(form.tuition) || 0, selectedCtv?.commissionRate ?? 0.5);
+
+  function submit(event: FormEvent) {
+    event.preventDefault();
+    if (type === "paid") {
+      onSubmitPaid({
+        gmail: form.gmail,
+        studentName: form.studentName,
+        ctvId: form.ctvId,
+        groupId: form.groupId,
+        courseType: form.courseType,
+        tuition: form.tuition,
+        date: form.date,
+        note: form.note,
+      });
+    } else {
+      onSubmitTrial({
+        gmail: form.gmail,
+        studentName: form.studentName,
+        ctvId: form.ctvId,
+        groupId: form.groupId,
+        courseType: form.courseType,
+        date: form.date,
+        trialEndDate: form.trialEndDate,
+        note: form.note,
+      });
+    }
+  }
+
   return (
-    <ModalShell title="Thêm học thử" onClose={onClose}>
-      <form
-        className="form-grid"
-        onSubmit={(event) => {
-          event.preventDefault();
-          onSubmit(form);
-        }}
-      >
+    <ModalShell title="Thêm đăng ký" onClose={onClose}>
+      <form className="form-grid" onSubmit={submit}>
+        <div className="form-type-toggle">
+          <Segmented
+            value={type}
+            options={[
+              { value: "paid", label: "Trả phí" },
+              { value: "trial", label: "Học thử" },
+            ]}
+            onChange={(value) => switchType(value as "paid" | "trial")}
+          />
+        </div>
         <TextField label="Gmail học viên" value={form.gmail} required onChange={(gmail) => setForm({ ...form, gmail })} />
         <TextField label="Tên học viên" value={form.studentName} onChange={(studentName) => setForm({ ...form, studentName })} />
         <SelectField
@@ -2231,15 +2437,50 @@ function TrialEnrollmentModal({
           options={state.ctvs.map((ctv) => ({ value: ctv.id, label: ctvDisplay(ctv) }))}
         />
         <SelectField
-          label="Google Group"
+          label={type === "paid" ? "Nhóm / khóa" : "Google Group"}
           value={form.groupId}
-          onChange={(groupId) => setForm({ ...form, groupId })}
-          options={trialGroups.map((group) => ({ value: group.id, label: `${group.name} · ${group.groupEmail}` }))}
+          onChange={(groupId) => {
+            const group = state.groups.find((item) => item.id === groupId);
+            setForm((current) => ({
+              ...current,
+              groupId,
+              courseType: type === "paid" ? group?.name ?? current.courseType : current.courseType,
+              tuition: type === "paid" ? String(group?.priceHint ?? current.tuition) : current.tuition,
+            }));
+          }}
+          options={groupsForType.map((group) => ({
+            value: group.id,
+            label: `${group.name} · ${group.groupEmail}`,
+          }))}
         />
-        <TextField label="Môn/Combo thử" value={form.courseType} required onChange={(courseType) => setForm({ ...form, courseType })} />
-        <TextField label="Ngày học thử" value={form.date} type="date" required onChange={(date) => setForm({ ...form, date })} />
-        <TextField label="Ngày kết thúc" value={form.trialEndDate} type="date" required onChange={(trialEndDate) => setForm({ ...form, trialEndDate })} />
+        <TextField
+          label={type === "paid" ? "Môn/Combo" : "Môn/Combo thử"}
+          value={form.courseType}
+          required
+          onChange={(courseType) => setForm({ ...form, courseType })}
+        />
+        {type === "paid" ? (
+          <TextField label="Học phí" value={form.tuition} type="number" required onChange={(tuition) => setForm({ ...form, tuition })} />
+        ) : null}
+        <TextField
+          label={type === "paid" ? "Ngày" : "Ngày học thử"}
+          value={form.date}
+          type="date"
+          required
+          onChange={(date) => setForm({ ...form, date })}
+        />
+        {type === "trial" ? (
+          <TextField label="Ngày kết thúc" value={form.trialEndDate} type="date" required onChange={(trialEndDate) => setForm({ ...form, trialEndDate })} />
+        ) : null}
         <TextField label="Ghi chú" value={form.note} onChange={(note) => setForm({ ...form, note })} />
+        {type === "paid" ? (
+          <div className="form-summary">
+            <span>Snapshot hoa hồng</span>
+            <strong>{Math.round((selectedCtv?.commissionRate ?? 0.5) * 100)}%</strong>
+            <span>Anh nhận</span>
+            <strong>{currency(estimatedShare)}</strong>
+          </div>
+        ) : null}
         <div className="modal-actions">
           <button className="button ghost" type="button" onClick={onClose}>
             <X size={17} />
@@ -2247,7 +2488,7 @@ function TrialEnrollmentModal({
           </button>
           <button className="button primary" type="submit">
             <Save size={17} />
-            <span>Lưu học thử</span>
+            <span>{type === "paid" ? "Lưu giao dịch" : "Lưu học thử"}</span>
           </button>
         </div>
       </form>

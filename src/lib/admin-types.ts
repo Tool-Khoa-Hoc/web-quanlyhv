@@ -46,3 +46,18 @@ export interface ApiAdminStatus {
 export interface ApiError {
   error: string;
 }
+
+// Trạng thái học thử (khớp TrialResult ở types.ts).
+export type TrialStatus = "dang_thu" | "da_dang_ky" | "khong_dang_ky";
+
+// 1 dòng trong Google Sheet kho học thử. Dùng chung server (sheets.ts) lẫn client.
+export interface TrialRecord {
+  timestamp: string;
+  groupEmail: string;
+  studentEmail: string;
+  studentName: string;
+  trialCourse: string;
+  ctvEmail: string;
+  ctvName: string;
+  status: string;
+}
