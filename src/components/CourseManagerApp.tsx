@@ -679,6 +679,9 @@ export function CourseManagerApp({ session }: { session: ClientSession }) {
         ),
       }));
       setAdminNotice(`Không thêm được ${normalizedEmail}: ${message}`);
+      // Ném lại để modal "Quản lý thành viên" hiển thị lỗi ngay tại chỗ
+      // (adminNotice ở trang nền bị modal che, người dùng không thấy).
+      throw new Error(message);
     }
   }
 
@@ -1448,7 +1451,7 @@ function GroupsView({
   onDeleteGroup: (groupId: string) => void;
   onSyncFromGoogle: () => void;
   onOpenGroup: (group: CourseGroup) => void;
-  onAddMember: (groupId: string, email: string, name: string, role: GroupRole) => void;
+  onAddMember: (groupId: string, email: string, name: string, role: GroupRole) => void | Promise<void>;
   onRemoveMember: (memberId: string) => void;
   onUpdateRole: (memberId: string, role: GroupRole) => void;
 }) {
@@ -1621,21 +1624,31 @@ function GroupMembersModal({
   members: AppState["groupMembers"];
   isAdmin: boolean;
   onClose: () => void;
-  onAddMember: (groupId: string, email: string, name: string, role: GroupRole) => void;
+  onAddMember: (groupId: string, email: string, name: string, role: GroupRole) => void | Promise<void>;
   onRemoveMember: (memberId: string) => void;
   onUpdateRole: (memberId: string, role: GroupRole) => void;
 }) {
   const [email, setEmail] = useState("");
   const [name, setName] = useState("");
   const [role, setRole] = useState<GroupRole>("member");
+  const [adding, setAdding] = useState(false);
+  const [error, setError] = useState("");
 
-  function submit(event: FormEvent) {
+  async function submit(event: FormEvent) {
     event.preventDefault();
-    if (!email.trim()) return;
-    onAddMember(group.id, email, name, role);
-    setEmail("");
-    setName("");
-    setRole("member");
+    if (!email.trim() || adding) return;
+    setError("");
+    setAdding(true);
+    try {
+      await onAddMember(group.id, email, name, role);
+      setEmail("");
+      setName("");
+      setRole("member");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setAdding(false);
+    }
   }
 
   return (
@@ -1672,11 +1685,12 @@ function GroupMembersModal({
               <option value="owner">Chủ sở hữu</option>
             </select>
           ) : null}
-          <button className="button primary" type="submit">
+          <button className="button primary" type="submit" disabled={adding}>
             <UserPlus size={16} />
-            <span>Thêm</span>
+            <span>{adding ? "Đang thêm…" : "Thêm"}</span>
           </button>
         </form>
+        {error ? <p className="status-note danger">{error}</p> : null}
         <div className="table-wrap">
           <table className="data-table member-table">
             <thead>
