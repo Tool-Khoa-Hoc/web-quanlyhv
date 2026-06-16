@@ -77,6 +77,21 @@ export function getWorkspaceDomain(): string {
   return domain;
 }
 
+/**
+ * Email nhóm "học thử" — nhóm DUY NHẤT mà cộng tác viên (CTV) được phép thao tác.
+ * Khai báo qua CTV_TRIAL_GROUP_EMAIL. Trả null nếu chưa cấu hình (khi đó CTV bị chặn hết — fail closed).
+ */
+export function getCtvTrialGroupKey(): string | null {
+  const v = process.env.CTV_TRIAL_GROUP_EMAIL?.trim().toLowerCase();
+  return v ? v : null;
+}
+
+/** So khớp groupKey (email nhóm) với nhóm học thử, không phân biệt hoa/thường/khoảng trắng. */
+export function isCtvTrialGroup(groupKey: string): boolean {
+  const trial = getCtvTrialGroupKey();
+  return Boolean(trial && groupKey.trim().toLowerCase() === trial);
+}
+
 export function getAdminRuntimeConfig() {
   const domain = getWorkspaceDomain();
   const impersonateEmail = process.env.GOOGLE_ADMIN_IMPERSONATE_EMAIL?.trim();
@@ -149,6 +164,20 @@ export async function listGroupsForUser(email: string) {
     pageToken = res.data.nextPageToken ?? undefined;
   } while (pageToken);
   return groups;
+}
+
+/** Lấy thông tin một nhóm theo groupKey (email hoặc id). Dùng để CTV chỉ thấy nhóm học thử. */
+export async function getGroupByKey(groupKey: string) {
+  const directory = getDirectory();
+  const res = await directory.groups.get({ groupKey });
+  const g = res.data;
+  return {
+    id: g.id ?? "",
+    email: g.email ?? "",
+    name: g.name ?? g.email ?? "",
+    description: g.description ?? "",
+    directMembersCount: Number(g.directMembersCount ?? 0),
+  };
 }
 
 /** True nếu email là thành viên (trực tiếp/gián tiếp) của nhóm groupKey. */

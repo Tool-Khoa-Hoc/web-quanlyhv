@@ -1,6 +1,12 @@
 import { NextResponse } from "next/server";
 
-import { describeApiError, getDirectory, getWorkspaceDomain, listGroupsForUser } from "@/lib/google-admin";
+import {
+  describeApiError,
+  getCtvTrialGroupKey,
+  getDirectory,
+  getGroupByKey,
+  getWorkspaceDomain,
+} from "@/lib/google-admin";
 import { requireSession } from "@/lib/api-guard";
 import type { ApiGroup } from "@/lib/admin-types";
 
@@ -8,16 +14,22 @@ export const dynamic = "force-dynamic";
 
 // GET /api/admin/groups
 //  - Admin: tất cả nhóm trong domain.
-//  - CTV: chỉ các nhóm mà họ là thành viên (được cấp quyền).
+//  - CTV: CHỈ nhóm học thử (CTV_TRIAL_GROUP_EMAIL). Chưa cấu hình → danh sách rỗng.
 export async function GET() {
   const session = await requireSession();
   if (session instanceof NextResponse) return session;
 
   try {
     if (session.role === "ctv") {
-      const groups = await listGroupsForUser(session.email);
-      groups.sort((a, b) => a.name.localeCompare(b.name, "vi"));
-      return NextResponse.json({ groups });
+      const trial = getCtvTrialGroupKey();
+      if (!trial) return NextResponse.json({ groups: [] });
+      try {
+        const group = await getGroupByKey(trial);
+        return NextResponse.json({ groups: [group] });
+      } catch {
+        // Nhóm học thử không tồn tại / không lấy được → trả rỗng thay vì lộ nhóm khác.
+        return NextResponse.json({ groups: [] });
+      }
     }
 
     const directory = getDirectory();

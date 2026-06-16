@@ -1595,6 +1595,7 @@ function GroupsView({
         <GroupMembersModal
           group={activeGroup}
           members={membersByGroup(state, activeGroup.id)}
+          isAdmin={isAdmin}
           onClose={() => setActiveGroupId(null)}
           onAddMember={onAddMember}
           onRemoveMember={onRemoveMember}
@@ -1608,6 +1609,7 @@ function GroupsView({
 function GroupMembersModal({
   group,
   members,
+  isAdmin,
   onClose,
   onAddMember,
   onRemoveMember,
@@ -1615,6 +1617,7 @@ function GroupMembersModal({
 }: {
   group: CourseGroup;
   members: AppState["groupMembers"];
+  isAdmin: boolean;
   onClose: () => void;
   onAddMember: (groupId: string, email: string, name: string, role: GroupRole) => void;
   onRemoveMember: (memberId: string) => void;
@@ -1655,16 +1658,18 @@ function GroupMembersModal({
             value={name}
             onChange={(event) => setName(event.target.value)}
           />
-          <select
-            className="select compact"
-            value={role}
-            onChange={(event) => setRole(event.target.value as GroupRole)}
-            aria-label="Role thành viên mới"
-          >
-            <option value="member">Thành viên</option>
-            <option value="manager">Quản lý</option>
-            <option value="owner">Chủ sở hữu</option>
-          </select>
+          {isAdmin ? (
+            <select
+              className="select compact"
+              value={role}
+              onChange={(event) => setRole(event.target.value as GroupRole)}
+              aria-label="Role thành viên mới"
+            >
+              <option value="member">Thành viên</option>
+              <option value="manager">Quản lý</option>
+              <option value="owner">Chủ sở hữu</option>
+            </select>
+          ) : null}
           <button className="button primary" type="submit">
             <UserPlus size={16} />
             <span>Thêm</span>
@@ -1690,16 +1695,28 @@ function GroupMembersModal({
                     </td>
                     <td data-label="Tên">{member.name ?? "-"}</td>
                     <td data-label="Role">
-                      <select
-                        className="select compact"
-                        value={member.role}
-                        onChange={(event) => onUpdateRole(member.id, event.target.value as GroupRole)}
-                        aria-label={`Đổi role của ${member.email}`}
-                      >
-                        <option value="member">Thành viên</option>
-                        <option value="manager">Quản lý</option>
-                        <option value="owner">Chủ sở hữu</option>
-                      </select>
+                      {isAdmin ? (
+                        <select
+                          className="select compact"
+                          value={member.role}
+                          onChange={(event) =>
+                            onUpdateRole(member.id, event.target.value as GroupRole)
+                          }
+                          aria-label={`Đổi role của ${member.email}`}
+                        >
+                          <option value="member">Thành viên</option>
+                          <option value="manager">Quản lý</option>
+                          <option value="owner">Chủ sở hữu</option>
+                        </select>
+                      ) : (
+                        <span className="tag">
+                          {member.role === "owner"
+                            ? "Chủ sở hữu"
+                            : member.role === "manager"
+                              ? "Quản lý"
+                              : "Thành viên"}
+                        </span>
+                      )}
                     </td>
                     <td data-label="Ngày tham gia">{shortDate(member.joinDate)}</td>
                     <td className="row-actions">

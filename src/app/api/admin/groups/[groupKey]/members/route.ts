@@ -59,9 +59,13 @@ export async function POST(
     if (!email) {
       return NextResponse.json({ error: "Thiếu email thành viên." }, { status: 400 });
     }
-    const role = (body.role?.toUpperCase() as ApiGroupRole) || "MEMBER";
+    let role = (body.role?.toUpperCase() as ApiGroupRole) || "MEMBER";
     if (!VALID_ROLES.includes(role)) {
       return NextResponse.json({ error: `Role không hợp lệ: ${role}` }, { status: 400 });
+    }
+    // CTV không được cấp role cao: mọi thành viên CTV thêm vào đều là MEMBER.
+    if (session.role === "ctv") {
+      role = "MEMBER";
     }
 
     const directory = getDirectory();

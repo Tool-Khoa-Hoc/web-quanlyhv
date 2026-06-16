@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { describeApiError, getDirectory } from "@/lib/google-admin";
-import { requireGroupAccess } from "@/lib/api-guard";
+import { requireAdmin, requireGroupAccess } from "@/lib/api-guard";
 import type { ApiGroupRole, ApiMember } from "@/lib/admin-types";
 
 export const dynamic = "force-dynamic";
@@ -30,12 +30,13 @@ export async function DELETE(
 }
 
 // PATCH /api/admin/groups/:groupKey/members/:memberKey  body: { role } → đổi vai trò.
+// Chỉ ADMIN được cấp/đổi role (OWNER/MANAGER/MEMBER) trên mọi nhóm. CTV không được.
 export async function PATCH(
   request: Request,
   { params }: { params: Promise<{ groupKey: string; memberKey: string }> },
 ) {
   const { groupKey, memberKey } = await params;
-  const session = await requireGroupAccess(decodeURIComponent(groupKey));
+  const session = await requireAdmin();
   if (session instanceof NextResponse) return session;
   try {
     const body = (await request.json()) as { role?: string };

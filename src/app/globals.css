@@ -851,11 +851,14 @@ button {
 .inline-filter select,
 .select {
   min-height: 38px;
+  min-width: 0;
+  max-width: 100%;
   border: 1px solid var(--border-strong);
   border-radius: 10px;
   padding: 0 10px;
   background: #ffffff;
   color: var(--text);
+  text-overflow: ellipsis;
   transition:
     border-color 160ms ease,
     box-shadow 160ms ease;
