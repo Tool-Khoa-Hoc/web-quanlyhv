@@ -1,53 +1,19 @@
 import "server-only";
 
-import { Redis } from "@upstash/redis";
-
+import { getRedis, isKvConfigured } from "./kv";
 import type { TrialRecord } from "./admin-types";
 
 export type { TrialRecord } from "./admin-types";
 
 // ===== Kho chung cho dữ liệu "Khóa học thử" — Vercel KV / Upstash Redis =====
-// Vercel KV chạy trên Upstash Redis. Khi tạo KV trong tab Storage của Vercel,
-// các biến môi trường được gắn tự động (KV_REST_API_URL/KV_REST_API_TOKEN
-// hoặc UPSTASH_REDIS_REST_URL/UPSTASH_REDIS_REST_TOKEN). Local: copy vào .env.local.
-//
 // Lưu mỗi record vào 1 Redis hash field; field = "<groupEmail>|<studentEmail>".
 
 export class TrialStoreError extends Error {}
 
 const HASH_KEY = "trials";
 
-function readEnv(name: string): string | undefined {
-  const value = process.env[name]?.trim();
-  return value ? value : undefined;
-}
-
-function resolveUrl(): string | undefined {
-  return readEnv("KV_REST_API_URL") ?? readEnv("UPSTASH_REDIS_REST_URL");
-}
-
-function resolveToken(): string | undefined {
-  return readEnv("KV_REST_API_TOKEN") ?? readEnv("UPSTASH_REDIS_REST_TOKEN");
-}
-
 export function isTrialStoreConfigured(): boolean {
-  return Boolean(resolveUrl() && resolveToken());
-}
-
-let cached: Redis | null = null;
-
-function getRedis(): Redis {
-  if (cached) return cached;
-  const url = resolveUrl();
-  const token = resolveToken();
-  if (!url || !token) {
-    throw new TrialStoreError(
-      "Chưa cấu hình kho học thử (thiếu KV_REST_API_URL/KV_REST_API_TOKEN hoặc UPSTASH_REDIS_REST_URL/TOKEN).",
-    );
-  }
-  // Tắt auto (de)serialize để tự kiểm soát JSON, tránh lỗi parse 2 lần.
-  cached = new Redis({ url, token, automaticDeserialization: false });
-  return cached;
+  return isKvConfigured();
 }
 
 function fieldFor(groupEmail: string, studentEmail: string): string {

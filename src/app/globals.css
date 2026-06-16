@@ -282,6 +282,18 @@ button {
   white-space: nowrap;
 }
 
+.inline-select {
+  max-width: 180px;
+  padding: 5px 8px;
+  border-radius: 9px;
+  border: 1px solid var(--border, rgba(15, 23, 42, 0.14));
+  background: var(--surface, #ffffff);
+  font: inherit;
+  font-weight: 600;
+  color: inherit;
+  cursor: pointer;
+}
+
 .button,
 .icon-button,
 .mini-button {

@@ -30,7 +30,7 @@ import {
   X,
 } from "lucide-react";
 import Image from "next/image";
-import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
+import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import {
   byId,
@@ -63,9 +63,12 @@ import {
   fetchAdminStatus,
   fetchDomainMembers,
   fetchGroups,
+  fetchLedger,
   fetchMembers,
   fetchTrialRecords,
   roleFromApi,
+  saveLedger,
+  type LedgerData,
 } from "@/lib/admin-api";
 import type {
   ApiAdminStatus,
@@ -195,6 +198,100 @@ export function CourseManagerApp({ session }: { session: ClientSession }) {
   // Thành viên nội bộ (domain) trong nhóm học thử — dùng cho dropdown chọn CTV.
   const [domainMembers, setDomainMembers] = useState<DomainMember[]>([]);
 
+  // ===== Đồng bộ sổ cái nghiệp vụ (CTV/học viên/giao dịch) qua /api/ledger =====
+  // stateRef: đọc state mới nhất trong callback debounce mà không bị stale closure.
+  const stateRef = useRef(state);
+  useEffect(() => {
+    stateRef.current = state;
+  }, [state]);
+  // rev server đang biết (kiểm tra đụng độ lạc quan).
+  const ledgerRevRef = useRef(0);
+  // Đã nạp xong sổ cái lần đầu chưa (trước đó không được phép ghi đè/đẩy lên).
+  const ledgerReadyRef = useRef(false);
+  // true khi state đổi do áp dữ liệu từ server → bỏ qua 1 lần ghi để tránh vòng lặp.
+  const ledgerSyncingRef = useRef(false);
+  // Khóa tuần tự + cờ "còn thay đổi" để gộp nhiều lần ghi liên tiếp.
+  const ledgerSavingRef = useRef(false);
+  const ledgerDirtyRef = useRef(false);
+  const ledgerSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Áp sổ cái từ server vào state (giữ nguyên groups/groupMembers/jobs cục bộ).
+  const applyLedger = useCallback((ledger: LedgerData) => {
+    ledgerRevRef.current = ledger.rev;
+    ledgerSyncingRef.current = true;
+    setState((current) => ({
+      ...current,
+      ctvs: ledger.ctvs,
+      students: ledger.students,
+      enrollments: ledger.enrollments,
+      settings: { ...current.settings, ...ledger.settings },
+    }));
+  }, []);
+
+  // Ghi sổ cái lên server (tuần tự, gộp thay đổi). Đụng độ → nhận bản server.
+  const flushLedger = useCallback(async () => {
+    if (!isAdmin || !ledgerReadyRef.current) return;
+    if (ledgerSavingRef.current) {
+      ledgerDirtyRef.current = true;
+      return;
+    }
+    ledgerSavingRef.current = true;
+    try {
+      do {
+        ledgerDirtyRef.current = false;
+        const current = stateRef.current;
+        const result = await saveLedger(
+          {
+            ctvs: current.ctvs,
+            students: current.students,
+            enrollments: current.enrollments,
+            settings: current.settings,
+          },
+          ledgerRevRef.current,
+        );
+        if (result.ok) {
+          ledgerRevRef.current = result.ledger.rev;
+        } else {
+          // Server mới hơn (thiết bị khác vừa ghi) → nhận bản server, dừng.
+          applyLedger(result.ledger);
+          setAdminNotice("Đã cập nhật dữ liệu mới nhất từ thiết bị khác.");
+          break;
+        }
+      } while (ledgerDirtyRef.current);
+    } catch {
+      // KV chưa cấu hình / lỗi mạng: bỏ qua, localStorage vẫn giữ dữ liệu.
+    } finally {
+      ledgerSavingRef.current = false;
+    }
+  }, [isAdmin, applyLedger]);
+
+  // Nạp sổ cái lần đầu. Server trống → đẩy dữ liệu cục bộ lên làm bản gốc.
+  const loadLedger = useCallback(async () => {
+    try {
+      const ledger = await fetchLedger();
+      if (ledger) {
+        applyLedger(ledger);
+        ledgerReadyRef.current = true;
+        return;
+      }
+      ledgerReadyRef.current = true;
+      await flushLedger();
+    } catch {
+      ledgerReadyRef.current = true;
+    }
+  }, [applyLedger, flushLedger]);
+
+  // Làm tươi sổ cái: chỉ áp khi server có rev mới hơn (tránh đè edit cục bộ).
+  const refreshLedger = useCallback(async () => {
+    if (!isAdmin || !ledgerReadyRef.current) return;
+    try {
+      const ledger = await fetchLedger();
+      if (ledger && ledger.rev > ledgerRevRef.current) applyLedger(ledger);
+    } catch {
+      // bỏ qua
+    }
+  }, [isAdmin, applyLedger]);
+
   const loadTrialRecords = useCallback(async () => {
     try {
       setTrialRecords(await fetchTrialRecords());
@@ -262,6 +359,41 @@ export function CourseManagerApp({ session }: { session: ClientSession }) {
       // Local storage can be blocked in private browsing; the in-memory state still works.
     }
   }, [hydrated, state]);
+
+  // Admin: nạp sổ cái dùng chung sau hydrate (đồng bộ giữa các thiết bị).
+  useEffect(() => {
+    if (!hydrated || !isAdmin) return;
+    void loadLedger();
+  }, [hydrated, isAdmin, loadLedger]);
+
+  // Admin: state đổi → đẩy lên server (debounce). Bỏ qua lần áp dữ liệu từ server.
+  useEffect(() => {
+    if (!hydrated || !isAdmin || !ledgerReadyRef.current) return;
+    if (ledgerSyncingRef.current) {
+      ledgerSyncingRef.current = false;
+      return;
+    }
+    if (ledgerSaveTimer.current) clearTimeout(ledgerSaveTimer.current);
+    ledgerSaveTimer.current = setTimeout(() => void flushLedger(), 600);
+    return () => {
+      if (ledgerSaveTimer.current) clearTimeout(ledgerSaveTimer.current);
+    };
+  }, [hydrated, isAdmin, flushLedger, state.ctvs, state.students, state.enrollments, state.settings]);
+
+  // Admin: làm tươi sổ cái khi quay lại tab + poll định kỳ (bắt thay đổi từ máy khác).
+  useEffect(() => {
+    if (!hydrated || !isAdmin) return;
+    const onFocus = () => {
+      void refreshLedger();
+      void loadTrialRecords();
+    };
+    window.addEventListener("focus", onFocus);
+    const timer = setInterval(onFocus, 20000);
+    return () => {
+      window.removeEventListener("focus", onFocus);
+      clearInterval(timer);
+    };
+  }, [hydrated, isAdmin, refreshLedger, loadTrialRecords]);
 
   // CTV: tự nạp đúng các nhóm được cấp quyền (server đã lọc theo membership).
   useEffect(() => {
@@ -474,6 +606,32 @@ export function CourseManagerApp({ session }: { session: ClientSession }) {
         };
       }),
     }));
+  }
+
+  // Đổi CTV cho 1 giao dịch đã ghi (sửa khi gán nhầm). Tính lại hoa hồng + tiền anh nhận.
+  function changeEnrollmentCtv(enrollmentId: string, ctvEmail: string) {
+    setState((current) => {
+      const target = current.enrollments.find((item) => item.id === enrollmentId);
+      if (!target) return current;
+      const resolved = resolveCtvByEmail(current, ctvEmail);
+      const ctv = resolved.ctv;
+      return {
+        ...resolved.state,
+        enrollments: resolved.state.enrollments.map((item) =>
+          item.id === enrollmentId
+            ? {
+                ...item,
+                ctvId: ctv.id,
+                commissionRateSnapshot: ctv.commissionRate,
+                ownerShare:
+                  item.type === "paid"
+                    ? ownerShare(item.tuition, ctv.commissionRate)
+                    : item.ownerShare,
+              }
+            : item,
+        ),
+      };
+    });
   }
 
   function updateTrialResult(enrollmentId: string, result: TrialResult) {
@@ -984,6 +1142,8 @@ export function CourseManagerApp({ session }: { session: ClientSession }) {
               onPaymentFilter={setPaymentFilter}
               onTogglePayment={togglePayment}
               onEnqueueJob={enqueueGroupJob}
+              onChangeCtv={changeEnrollmentCtv}
+              domainMembers={domainMembers}
             />
           ) : null}
 
@@ -1213,11 +1373,15 @@ function TransactionsView({
   onPaymentFilter,
   onTogglePayment,
   onEnqueueJob,
+  onChangeCtv,
+  domainMembers,
 }: {
   state: AppState;
   rows: Enrollment[];
   ctvFilter: string;
   paymentFilter: "all" | PaymentStatus;
+  onChangeCtv: (enrollmentId: string, ctvEmail: string) => void;
+  domainMembers: DomainMember[];
   onCtvFilter: (id: string) => void;
   onPaymentFilter: (status: "all" | PaymentStatus) => void;
   onTogglePayment: (id: string) => void;
@@ -1269,6 +1433,8 @@ function TransactionsView({
                   state={state}
                   onTogglePayment={onTogglePayment}
                   onEnqueueJob={onEnqueueJob}
+                  onChangeCtv={onChangeCtv}
+                  domainMembers={domainMembers}
                 />
               ))
             ) : (
@@ -2325,16 +2491,29 @@ function TransactionRow({
   compact = false,
   onTogglePayment,
   onEnqueueJob,
+  onChangeCtv,
+  domainMembers = [],
 }: {
   enrollment: Enrollment;
   state: AppState;
   compact?: boolean;
   onTogglePayment: (id: string) => void;
   onEnqueueJob?: (enrollment: Enrollment) => void;
+  onChangeCtv?: (enrollmentId: string, ctvEmail: string) => void;
+  domainMembers?: DomainMember[];
 }) {
   const student = state.students.find((item) => item.id === enrollment.studentId);
   const ctv = state.ctvs.find((item) => item.id === enrollment.ctvId);
   const group = state.groups.find((item) => item.id === enrollment.groupId);
+  // Tùy chọn CTV: ưu tiên thành viên domain thật, kèm CTV cục bộ đang gán (nếu chưa có trong list).
+  const ctvOptions = (
+    domainMembers.length
+      ? domainMembers.map((m) => ({ value: m.email, label: m.name ? `${m.name} · ${m.email}` : m.email }))
+      : state.ctvs.map((c) => ({ value: c.email, label: ctvDisplay(c) }))
+  ).slice();
+  if (ctv && !ctvOptions.some((o) => o.value.toLowerCase() === ctv.email.trim().toLowerCase())) {
+    ctvOptions.unshift({ value: ctv.email, label: ctvDisplay(ctv) });
+  }
 
   if (compact) {
     return (
@@ -2365,7 +2544,23 @@ function TransactionRow({
         <strong>{student?.gmail}</strong>
         <span className="table-subtext">{student?.name}</span>
       </td>
-      <td>{ctv?.name}</td>
+      <td>
+        {onChangeCtv ? (
+          <select
+            className="inline-select"
+            value={ctv?.email ?? ""}
+            onChange={(e) => onChangeCtv(enrollment.id, e.target.value)}
+          >
+            {ctvOptions.map((opt) => (
+              <option key={opt.value} value={opt.value}>
+                {opt.label}
+              </option>
+            ))}
+          </select>
+        ) : (
+          ctv?.name
+        )}
+      </td>
       <td>{group?.name ?? enrollment.courseType}</td>
       <td className="numeric money-cell">{currency(enrollment.tuition)}</td>
       <td className="numeric money-cell debt">{currency(enrollment.ownerShare)}</td>

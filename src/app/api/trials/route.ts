@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 
 import { describeApiError, getDirectory, getCtvTrialGroupKey } from "@/lib/google-admin";
 import { requireGroupAccess, requireSession } from "@/lib/api-guard";
+import { KvStoreError } from "@/lib/kv";
 import {
   TrialStoreError,
   isTrialStoreConfigured,
@@ -16,7 +17,7 @@ export const dynamic = "force-dynamic";
 const VALID_STATUS = ["dang_thu", "da_dang_ky", "khong_dang_ky"];
 
 function handleError(error: unknown) {
-  if (error instanceof TrialStoreError) {
+  if (error instanceof TrialStoreError || error instanceof KvStoreError) {
     return NextResponse.json({ error: error.message }, { status: 503 });
   }
   const { status, message } = describeApiError(error);

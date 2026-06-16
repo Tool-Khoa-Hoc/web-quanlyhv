@@ -7,7 +7,7 @@ import type {
   TrialRecord,
   TrialStatus,
 } from "./admin-types";
-import type { CourseGroup, GroupMember, GroupRole } from "./types";
+import type { Ctv, CourseGroup, Enrollment, GroupMember, GroupRole, Settings, Student } from "./types";
 
 // ===== Client gọi tới backend /api/admin/* =====
 
@@ -124,6 +124,53 @@ export async function apiUpdateTrialStatus(
     body: JSON.stringify({ groupKey: groupEmail, email, status }),
   });
   await jsonOrThrow<{ ok: boolean }>(res);
+}
+
+// ===== Sổ cái nghiệp vụ dùng chung (CTV / học viên / giao dịch) qua /api/ledger =====
+
+export interface LedgerPayload {
+  ctvs: Ctv[];
+  students: Student[];
+  enrollments: Enrollment[];
+  settings: Settings;
+}
+
+export interface LedgerData extends LedgerPayload {
+  rev: number;
+  updatedAt: string;
+}
+
+/** Đọc sổ cái từ server. null = chưa cấu hình KV hoặc chưa từng ghi (client dùng localStorage). */
+export async function fetchLedger(): Promise<LedgerData | null> {
+  const res = await fetch("/api/ledger", { cache: "no-store" });
+  const data = await jsonOrThrow<{ ledger: LedgerData | null }>(res);
+  return data.ledger;
+}
+
+export interface LedgerWriteResult {
+  ok: boolean;
+  ledger: LedgerData;
+}
+
+/**
+ * Ghi sổ cái với kiểm tra đụng độ theo rev.
+ * - 200 → { ok: true, ledger }.
+ * - 409 → { ok: false, ledger } (server mới hơn; client cần hợp nhất rồi ghi lại).
+ */
+export async function saveLedger(
+  payload: LedgerPayload,
+  baseRev: number,
+): Promise<LedgerWriteResult> {
+  const res = await fetch("/api/ledger", {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ payload, baseRev }),
+  });
+  if (res.status === 409) {
+    const data = await res.json().catch(() => ({}));
+    return { ok: false, ledger: (data as { ledger: LedgerData }).ledger };
+  }
+  return jsonOrThrow<LedgerWriteResult>(res);
 }
 
 // ===== Mapping giữa DTO của Admin SDK và model của app =====
