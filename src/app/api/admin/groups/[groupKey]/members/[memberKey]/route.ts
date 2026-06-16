@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { describeApiError, getDirectory } from "@/lib/google-admin";
-import { requireAdmin, requireGroupAccess } from "@/lib/api-guard";
+import { requireAdmin } from "@/lib/api-guard";
 import type { ApiGroupRole, ApiMember } from "@/lib/admin-types";
 
 export const dynamic = "force-dynamic";
@@ -9,12 +9,13 @@ export const dynamic = "force-dynamic";
 const VALID_ROLES: ApiGroupRole[] = ["OWNER", "MANAGER", "MEMBER"];
 
 // DELETE /api/admin/groups/:groupKey/members/:memberKey → xóa thành viên khỏi nhóm.
+// Chỉ ADMIN được xóa thành viên. CTV bị chặn (cả UI lẫn API).
 export async function DELETE(
   _request: Request,
   { params }: { params: Promise<{ groupKey: string; memberKey: string }> },
 ) {
   const { groupKey, memberKey } = await params;
-  const session = await requireGroupAccess(decodeURIComponent(groupKey));
+  const session = await requireAdmin();
   if (session instanceof NextResponse) return session;
   try {
     const directory = getDirectory();

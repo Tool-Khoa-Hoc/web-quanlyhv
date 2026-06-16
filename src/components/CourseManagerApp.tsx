@@ -683,6 +683,8 @@ export function CourseManagerApp({ session }: { session: ClientSession }) {
   }
 
   async function removeGroupMember(memberId: string) {
+    // Chỉ admin được xóa thành viên. CTV bị chặn (cả UI lẫn handler).
+    if (!isAdmin) return;
     const member = state.groupMembers.find((item) => item.id === memberId);
     if (!member) return;
     const group = state.groups.find((g) => g.id === member.groupId);
@@ -1682,7 +1684,6 @@ function GroupMembersModal({
                 <th>Email</th>
                 <th>Tên</th>
                 <th>Role</th>
-                <th>Ngày tham gia</th>
                 <th></th>
               </tr>
             </thead>
@@ -1718,25 +1719,26 @@ function GroupMembersModal({
                         </span>
                       )}
                     </td>
-                    <td data-label="Ngày tham gia">{shortDate(member.joinDate)}</td>
                     <td className="row-actions">
-                      <button
-                        className="mini-button ghost"
-                        type="button"
-                        onClick={() => {
-                          if (window.confirm(`Xóa ${member.email} khỏi nhóm?`)) {
-                            onRemoveMember(member.id);
-                          }
-                        }}
-                      >
-                        <X size={14} />
-                        Xóa
-                      </button>
+                      {isAdmin ? (
+                        <button
+                          className="mini-button ghost"
+                          type="button"
+                          onClick={() => {
+                            if (window.confirm(`Xóa ${member.email} khỏi nhóm?`)) {
+                              onRemoveMember(member.id);
+                            }
+                          }}
+                        >
+                          <X size={14} />
+                          Xóa
+                        </button>
+                      ) : null}
                     </td>
                   </tr>
                 ))
               ) : (
-                <EmptyTableRow colSpan={5} label="Chưa có thành viên. Thêm email phía trên." />
+                <EmptyTableRow colSpan={4} label="Chưa có thành viên. Thêm email phía trên." />
               )}
             </tbody>
           </table>

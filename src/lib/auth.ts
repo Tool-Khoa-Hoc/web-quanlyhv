@@ -78,13 +78,25 @@ export function roleForEmail(email: string, config: OAuthConfig): AppRole {
   return config.adminEmails.includes(email.toLowerCase()) ? "admin" : "ctv";
 }
 
-/** Tạo OAuth2 client với redirect URI suy ra từ origin của request. */
+/**
+ * Origin chuẩn để dựng redirect URI cho OAuth.
+ * Ưu tiên APP_BASE_URL (cố định, khớp với URI đã đăng ký ở Google Console),
+ * nếu không có thì dùng origin của request hiện tại.
+ * Quan trọng vì Vercel cấp URL preview thay đổi liên tục → redirect_uri_mismatch.
+ */
+export function getOAuthOrigin(requestOrigin: string): string {
+  const base = process.env.APP_BASE_URL?.trim();
+  if (base) return base.replace(/\/+$/, "");
+  return requestOrigin;
+}
+
+/** Tạo OAuth2 client với redirect URI cố định (APP_BASE_URL) hoặc theo origin request. */
 export function createOAuthClient(origin: string) {
   const config = getOAuthConfig();
   return new google.auth.OAuth2({
     clientId: config.clientId,
     clientSecret: config.clientSecret,
-    redirectUri: `${origin}/api/auth/callback`,
+    redirectUri: `${getOAuthOrigin(origin)}/api/auth/callback`,
   });
 }
 
