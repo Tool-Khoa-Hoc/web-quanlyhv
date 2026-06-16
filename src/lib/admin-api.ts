@@ -3,6 +3,7 @@ import type {
   ApiGroup,
   ApiGroupRole,
   ApiMember,
+  DomainMember,
   TrialRecord,
   TrialStatus,
 } from "./admin-types";
@@ -28,6 +29,13 @@ export async function fetchGroups(): Promise<ApiGroup[]> {
 export async function fetchAdminStatus(): Promise<ApiAdminStatus> {
   const res = await fetch("/api/admin/status", { cache: "no-store" });
   return jsonOrThrow<ApiAdminStatus>(res);
+}
+
+/** Thành viên nội bộ (thuộc domain) trong nhóm học thử — dùng cho dropdown chọn CTV. */
+export async function fetchDomainMembers(): Promise<DomainMember[]> {
+  const res = await fetch("/api/admin/domain-members", { cache: "no-store" });
+  const data = await jsonOrThrow<{ members: DomainMember[] }>(res);
+  return data.members;
 }
 
 export async function fetchMembers(groupEmail: string): Promise<ApiMember[]> {
@@ -85,17 +93,22 @@ export async function fetchTrialRecords(): Promise<TrialRecord[]> {
   return data.records;
 }
 
-/** Thêm học viên vào nhóm học thử + ghi khóa học thử lên Sheet (gắn email CTV đang đăng nhập). */
+/**
+ * Thêm học viên vào nhóm học thử + ghi khóa học thử lên kho chung.
+ * Mặc định gắn email CTV đang đăng nhập; admin có thể chỉ định `ctvEmail`
+ * để gắn cho một CTV (tài khoản domain) khác.
+ */
 export async function apiAddTrial(
   groupEmail: string,
   email: string,
   name: string,
   trialCourse: string,
+  ctvEmail?: string,
 ): Promise<{ member: ApiMember; record: TrialRecord }> {
   const res = await fetch("/api/trials", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ groupKey: groupEmail, email, name, trialCourse }),
+    body: JSON.stringify({ groupKey: groupEmail, email, name, trialCourse, ctvEmail }),
   });
   return jsonOrThrow<{ member: ApiMember; record: TrialRecord }>(res);
 }

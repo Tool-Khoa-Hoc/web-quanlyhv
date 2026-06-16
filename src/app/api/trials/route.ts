@@ -53,6 +53,7 @@ export async function POST(request: Request) {
     email?: string;
     name?: string;
     trialCourse?: string;
+    ctvEmail?: string;
   };
   const groupKey = body.groupKey?.trim();
   const email = body.email?.trim().toLowerCase();
@@ -62,6 +63,14 @@ export async function POST(request: Request) {
 
   const session = await requireGroupAccess(groupKey);
   if (session instanceof NextResponse) return session;
+
+  // Mặc định gắn người đang đăng nhập. Riêng admin được phép gắn cho 1 CTV (domain) khác.
+  const attributedEmail =
+    session.role === "admin" && body.ctvEmail?.trim()
+      ? body.ctvEmail.trim().toLowerCase()
+      : session.email;
+  const attributedName =
+    attributedEmail === session.email ? session.name : attributedEmail.split("@")[0];
 
   try {
     const directory = getDirectory();
@@ -96,8 +105,8 @@ export async function POST(request: Request) {
       studentEmail: email,
       studentName: body.name?.trim() ?? "",
       trialCourse: body.trialCourse?.trim() ?? "",
-      ctvEmail: session.email,
-      ctvName: session.name,
+      ctvEmail: attributedEmail,
+      ctvName: attributedName,
     });
 
     return NextResponse.json({ member, record }, { status: 201 });

@@ -47,6 +47,12 @@ export interface ApiError {
   error: string;
 }
 
+// Thành viên nội bộ thuộc domain Workspace (dùng cho dropdown chọn CTV).
+export interface DomainMember {
+  email: string;
+  name?: string;
+}
+
 // Trạng thái học thử (khớp TrialResult ở types.ts).
 export type TrialStatus = "dang_thu" | "da_dang_ky" | "khong_dang_ky";
 

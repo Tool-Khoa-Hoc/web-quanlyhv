@@ -61,12 +61,19 @@ import {
   apiUpdateRole,
   apiUpdateTrialStatus,
   fetchAdminStatus,
+  fetchDomainMembers,
   fetchGroups,
   fetchMembers,
   fetchTrialRecords,
   roleFromApi,
 } from "@/lib/admin-api";
-import type { ApiAdminStatus, ClientSession, TrialRecord, TrialStatus } from "@/lib/admin-types";
+import type {
+  ApiAdminStatus,
+  ClientSession,
+  DomainMember,
+  TrialRecord,
+  TrialStatus,
+} from "@/lib/admin-types";
 import type {
   AppState,
   CourseGroup,
@@ -108,7 +115,7 @@ type ModalMode = "transaction" | "trial" | null;
 interface PaidFormState {
   gmail: string;
   studentName: string;
-  ctvId: string;
+  ctvEmail: string;
   groupId: string;
   courseType: string;
   tuition: string;
@@ -119,7 +126,7 @@ interface PaidFormState {
 interface TrialFormState {
   gmail: string;
   studentName: string;
-  ctvId: string;
+  ctvEmail: string;
   groupId: string;
   courseType: string;
   date: string;
@@ -143,6 +150,29 @@ interface CtvFormState {
   commissionRate: string;
 }
 
+/**
+ * Tìm CTV theo email (tài khoản domain). Chưa có thì tạo mới với hoa hồng mặc định 50%.
+ * Trả về state (có thể đã thêm CTV mới) + bản ghi CTV để gắn cho enrollment.
+ */
+function resolveCtvByEmail(current: AppState, email: string): { state: AppState; ctv: Ctv } {
+  const normalized = email.trim().toLowerCase();
+  const existing = current.ctvs.find((item) => item.email.trim().toLowerCase() === normalized);
+  if (existing) return { state: current, ctv: existing };
+  if (!normalized) {
+    const fallback = current.ctvs[0];
+    if (fallback) return { state: current, ctv: fallback };
+  }
+  const local = (normalized.split("@")[0] || normalized || "ctv").trim();
+  const ctv: Ctv = {
+    id: makeId("ctv"),
+    code: local.toUpperCase().slice(0, 8) || "CTV",
+    name: local,
+    email: normalized,
+    commissionRate: 0.5,
+  };
+  return { state: { ...current, ctvs: [ctv, ...current.ctvs] }, ctv };
+}
+
 export function CourseManagerApp({ session }: { session: ClientSession }) {
   const isAdmin = session.role === "admin";
   const visibleNavItems = isAdmin ? navItems : navItems.filter((item) => item.key === "groups");
@@ -162,12 +192,22 @@ export function CourseManagerApp({ session }: { session: ClientSession }) {
   const [adminStatus, setAdminStatus] = useState<AdminSdkState>({ state: "checking" });
   // Kho học thử dùng chung (Google Sheet) — đồng bộ giữa CTV và admin.
   const [trialRecords, setTrialRecords] = useState<TrialRecord[]>([]);
+  // Thành viên nội bộ (domain) trong nhóm học thử — dùng cho dropdown chọn CTV.
+  const [domainMembers, setDomainMembers] = useState<DomainMember[]>([]);
 
   const loadTrialRecords = useCallback(async () => {
     try {
       setTrialRecords(await fetchTrialRecords());
     } catch {
       // Sheet chưa cấu hình hoặc lỗi mạng: bỏ qua, danh sách rỗng vẫn dùng được.
+    }
+  }, []);
+
+  const loadDomainMembers = useCallback(async () => {
+    try {
+      setDomainMembers(await fetchDomainMembers());
+    } catch {
+      // Chưa cấu hình Admin SDK / nhóm học thử: bỏ qua, fallback về CTV cục bộ.
     }
   }, []);
 
@@ -193,6 +233,12 @@ export function CourseManagerApp({ session }: { session: ClientSession }) {
     if (!hydrated) return;
     void loadTrialRecords();
   }, [hydrated, loadTrialRecords]);
+
+  // Admin: nạp danh sách thành viên nội bộ trong domain để chọn CTV khi thêm đăng ký.
+  useEffect(() => {
+    if (!hydrated || !isAdmin) return;
+    void loadDomainMembers();
+  }, [hydrated, isAdmin, loadDomainMembers]);
 
   useEffect(() => {
     try {
@@ -323,15 +369,16 @@ export function CourseManagerApp({ session }: { session: ClientSession }) {
   }
 
   function addPaidEnrollment(form: PaidFormState) {
-    const ctv = state.ctvs.find((item) => item.id === form.ctvId) ?? state.ctvs[0];
     const group = state.groups.find((item) => item.id === form.groupId) ?? state.groups[0];
     if (!group) {
       setAdminNotice("Chưa có Google Group. Bấm 'Đồng bộ từ Google' trong trang Nhóm trước khi thêm giao dịch.");
       setActiveView("groups");
       return;
     }
+    const resolved = resolveCtvByEmail(state, form.ctvEmail);
+    const ctv = resolved.ctv;
     const tuition = Number(form.tuition) || group.priceHint || 0;
-    const withStudent = findOrCreateStudent(state, form.gmail, form.studentName);
+    const withStudent = findOrCreateStudent(resolved.state, form.gmail, form.studentName);
     const share = ownerShare(tuition, ctv.commissionRate);
     const enrollment: Enrollment = {
       id: makeId("enr"),
@@ -362,7 +409,6 @@ export function CourseManagerApp({ session }: { session: ClientSession }) {
   }
 
   function addTrialEnrollment(form: TrialFormState) {
-    const ctv = state.ctvs.find((item) => item.id === form.ctvId) ?? state.ctvs[0];
     const trialGroup =
       state.groups.find((item) => item.id === form.groupId) ??
       state.groups.find((item) => item.kind === "trial") ??
@@ -372,7 +418,9 @@ export function CourseManagerApp({ session }: { session: ClientSession }) {
       setActiveView("groups");
       return;
     }
-    const withStudent = findOrCreateStudent(state, form.gmail, form.studentName);
+    const resolved = resolveCtvByEmail(state, form.ctvEmail);
+    const ctv = resolved.ctv;
+    const withStudent = findOrCreateStudent(resolved.state, form.gmail, form.studentName);
     const enrollment: Enrollment = {
       id: makeId("trial"),
       type: "trial",
@@ -400,9 +448,13 @@ export function CourseManagerApp({ session }: { session: ClientSession }) {
       // Ghi lên Sheet (kho chung) để CTV cũng thấy + gắn người thêm.
       settleMemberJob(
         job.id,
-        apiAddTrial(trialGroup.groupEmail, form.gmail, form.studentName, form.courseType).then(
-          loadTrialRecords,
-        ),
+        apiAddTrial(
+          trialGroup.groupEmail,
+          form.gmail,
+          form.studentName,
+          form.courseType,
+          ctv.email,
+        ).then(loadTrialRecords),
       );
     }
     setModal(null);
@@ -1013,6 +1065,7 @@ export function CourseManagerApp({ session }: { session: ClientSession }) {
         <EnrollmentModal
           state={state}
           initialType={modal === "trial" ? "trial" : "paid"}
+          domainMembers={domainMembers}
           onClose={() => setModal(null)}
           onSubmitPaid={addPaidEnrollment}
           onSubmitTrial={addTrialEnrollment}
@@ -2340,12 +2393,14 @@ function TransactionRow({
 function EnrollmentModal({
   state,
   initialType,
+  domainMembers,
   onClose,
   onSubmitPaid,
   onSubmitTrial,
 }: {
   state: AppState;
   initialType: "paid" | "trial";
+  domainMembers: DomainMember[];
   onClose: () => void;
   onSubmitPaid: (form: PaidFormState) => void;
   onSubmitTrial: (form: TrialFormState) => void;
@@ -2353,17 +2408,26 @@ function EnrollmentModal({
   const [type, setType] = useState<"paid" | "trial">(initialType);
 
   const paidGroups = state.groups.filter((group) => group.kind !== "trial");
-  const trialGroups = state.groups.filter((group) => group.kind !== "paid");
+  // Học thử: CHỈ hiện nhóm học thử (không kèm combo/trả phí).
+  const trialGroups = state.groups.filter((group) => group.kind === "trial");
   const groupsForType = type === "paid" ? paidGroups : trialGroups;
   const firstPaid = paidGroups[0] ?? state.groups[0];
-  const firstTrial =
-    trialGroups.find((group) => group.kind === "trial") ?? trialGroups[0] ?? state.groups[0];
+  const firstTrial = trialGroups[0] ?? state.groups.find((group) => group.kind === "trial");
   const firstGroup = type === "paid" ? firstPaid : firstTrial;
+
+  // CTV chọn từ thành viên nội bộ trong domain; fallback về CTV cục bộ nếu chưa nạp được.
+  const ctvOptions =
+    domainMembers.length > 0
+      ? domainMembers.map((member) => ({
+          value: member.email,
+          label: member.name ? `${member.name} · ${member.email}` : member.email,
+        }))
+      : state.ctvs.map((ctv) => ({ value: ctv.email, label: ctvDisplay(ctv) }));
 
   const [form, setForm] = useState({
     gmail: "",
     studentName: "",
-    ctvId: state.ctvs[0]?.id ?? "",
+    ctvEmail: ctvOptions[0]?.value ?? "",
     groupId: firstGroup?.id ?? "",
     courseType: type === "paid" ? firstGroup?.name ?? "" : "Học thử",
     tuition: String(firstPaid?.priceHint ?? 0),
@@ -2385,7 +2449,9 @@ function EnrollmentModal({
     }));
   }
 
-  const selectedCtv = state.ctvs.find((ctv) => ctv.id === form.ctvId) ?? state.ctvs[0];
+  const selectedCtv = state.ctvs.find(
+    (ctv) => ctv.email.trim().toLowerCase() === form.ctvEmail.trim().toLowerCase(),
+  );
   const estimatedShare = ownerShare(Number(form.tuition) || 0, selectedCtv?.commissionRate ?? 0.5);
 
   function submit(event: FormEvent) {
@@ -2394,7 +2460,7 @@ function EnrollmentModal({
       onSubmitPaid({
         gmail: form.gmail,
         studentName: form.studentName,
-        ctvId: form.ctvId,
+        ctvEmail: form.ctvEmail,
         groupId: form.groupId,
         courseType: form.courseType,
         tuition: form.tuition,
@@ -2405,7 +2471,7 @@ function EnrollmentModal({
       onSubmitTrial({
         gmail: form.gmail,
         studentName: form.studentName,
-        ctvId: form.ctvId,
+        ctvEmail: form.ctvEmail,
         groupId: form.groupId,
         courseType: form.courseType,
         date: form.date,
@@ -2431,10 +2497,10 @@ function EnrollmentModal({
         <TextField label="Gmail học viên" value={form.gmail} required onChange={(gmail) => setForm({ ...form, gmail })} />
         <TextField label="Tên học viên" value={form.studentName} onChange={(studentName) => setForm({ ...form, studentName })} />
         <SelectField
-          label="CTV"
-          value={form.ctvId}
-          onChange={(ctvId) => setForm({ ...form, ctvId })}
-          options={state.ctvs.map((ctv) => ({ value: ctv.id, label: ctvDisplay(ctv) }))}
+          label="CTV (tài khoản domain)"
+          value={form.ctvEmail}
+          onChange={(ctvEmail) => setForm({ ...form, ctvEmail })}
+          options={ctvOptions}
         />
         <SelectField
           label={type === "paid" ? "Nhóm / khóa" : "Google Group"}
