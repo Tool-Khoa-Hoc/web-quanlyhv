@@ -119,6 +119,7 @@ interface PaidFormState {
   gmail: string;
   studentName: string;
   ctvEmail: string;
+  ctvName: string;
   groupId: string;
   courseType: string;
   tuition: string;
@@ -130,6 +131,7 @@ interface TrialFormState {
   gmail: string;
   studentName: string;
   ctvEmail: string;
+  ctvName: string;
   groupId: string;
   courseType: string;
   date: string;
@@ -157,23 +159,43 @@ interface CtvFormState {
  * Tìm CTV theo email (tài khoản domain). Chưa có thì tạo mới với hoa hồng mặc định 50%.
  * Trả về state (có thể đã thêm CTV mới) + bản ghi CTV để gắn cho enrollment.
  */
-function resolveCtvByEmail(current: AppState, email: string): { state: AppState; ctv: Ctv } {
-  const normalized = email.trim().toLowerCase();
-  const existing = current.ctvs.find((item) => item.email.trim().toLowerCase() === normalized);
+function ctvCodeFromIdentity(name: string, email: string) {
+  const source = name.trim() || email.split("@")[0] || "CTV";
+  const ascii = source
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-zA-Z0-9]/g, "")
+    .toUpperCase();
+  return ascii.slice(0, 8) || "CTV";
+}
+
+function resolveCtv(current: AppState, input: { email?: string; name?: string }): { state: AppState; ctv: Ctv } {
+  const normalized = input.email?.trim().toLowerCase() ?? "";
+  const name = input.name?.trim() ?? "";
+  const nameKey = name.toLowerCase();
+  const existing = normalized
+    ? current.ctvs.find((item) => item.email.trim().toLowerCase() === normalized)
+    : current.ctvs.find(
+        (item) => item.name.trim().toLowerCase() === nameKey && !item.email.trim(),
+      ) ?? current.ctvs.find((item) => item.name.trim().toLowerCase() === nameKey);
   if (existing) return { state: current, ctv: existing };
-  if (!normalized) {
+  if (!normalized && !name) {
     const fallback = current.ctvs[0];
     if (fallback) return { state: current, ctv: fallback };
   }
   const local = (normalized.split("@")[0] || normalized || "ctv").trim();
   const ctv: Ctv = {
     id: makeId("ctv"),
-    code: local.toUpperCase().slice(0, 8) || "CTV",
-    name: local,
+    code: ctvCodeFromIdentity(name, normalized),
+    name: name || local,
     email: normalized,
-    commissionRate: 0.5,
+    commissionRate: current.settings.defaultCommissionRate,
   };
   return { state: { ...current, ctvs: [ctv, ...current.ctvs] }, ctv };
+}
+
+function resolveCtvByEmail(current: AppState, email: string): { state: AppState; ctv: Ctv } {
+  return resolveCtv(current, { email });
 }
 
 export function CourseManagerApp({ session }: { session: ClientSession }) {
@@ -507,7 +529,7 @@ export function CourseManagerApp({ session }: { session: ClientSession }) {
       setActiveView("groups");
       return;
     }
-    const resolved = resolveCtvByEmail(state, form.ctvEmail);
+    const resolved = resolveCtv(state, { email: form.ctvEmail, name: form.ctvName });
     const ctv = resolved.ctv;
     const tuition = Number(form.tuition) || group.priceHint || 0;
     const withStudent = findOrCreateStudent(resolved.state, form.gmail, form.studentName);
@@ -550,7 +572,7 @@ export function CourseManagerApp({ session }: { session: ClientSession }) {
       setActiveView("groups");
       return;
     }
-    const resolved = resolveCtvByEmail(state, form.ctvEmail);
+    const resolved = resolveCtv(state, { email: form.ctvEmail, name: form.ctvName });
     const ctv = resolved.ctv;
     const withStudent = findOrCreateStudent(resolved.state, form.gmail, form.studentName);
     const enrollment: Enrollment = {
@@ -586,6 +608,7 @@ export function CourseManagerApp({ session }: { session: ClientSession }) {
           form.studentName,
           form.courseType,
           ctv.email,
+          ctv.name,
         ).then(loadTrialRecords),
       );
     }
@@ -2622,7 +2645,9 @@ function EnrollmentModal({
   const [form, setForm] = useState({
     gmail: "",
     studentName: "",
+    ctvMode: "email" as "email" | "name",
     ctvEmail: ctvOptions[0]?.value ?? "",
+    ctvName: "",
     groupId: firstGroup?.id ?? "",
     courseType: type === "paid" ? firstGroup?.name ?? "" : "Học thử",
     tuition: String(firstPaid?.priceHint ?? 0),
@@ -2644,10 +2669,21 @@ function EnrollmentModal({
     }));
   }
 
+  const selectedDomainMember = domainMembers.find(
+    (member) => member.email.trim().toLowerCase() === form.ctvEmail.trim().toLowerCase(),
+  );
   const selectedCtv = state.ctvs.find(
     (ctv) => ctv.email.trim().toLowerCase() === form.ctvEmail.trim().toLowerCase(),
   );
-  const estimatedShare = ownerShare(Number(form.tuition) || 0, selectedCtv?.commissionRate ?? 0.5);
+  const manualCtv = state.ctvs.find(
+    (ctv) => ctv.name.trim().toLowerCase() === form.ctvName.trim().toLowerCase() && !ctv.email.trim(),
+  );
+  const activeCtv = form.ctvMode === "name" ? manualCtv : selectedCtv;
+  const selectedCtvName = selectedDomainMember?.name ?? selectedCtv?.name ?? "";
+  const estimatedShare = ownerShare(
+    Number(form.tuition) || 0,
+    activeCtv?.commissionRate ?? state.settings.defaultCommissionRate,
+  );
 
   function submit(event: FormEvent) {
     event.preventDefault();
@@ -2655,7 +2691,8 @@ function EnrollmentModal({
       onSubmitPaid({
         gmail: form.gmail,
         studentName: form.studentName,
-        ctvEmail: form.ctvEmail,
+        ctvEmail: form.ctvMode === "email" ? form.ctvEmail : "",
+        ctvName: form.ctvMode === "name" ? form.ctvName : selectedCtvName,
         groupId: form.groupId,
         courseType: form.courseType,
         tuition: form.tuition,
@@ -2666,7 +2703,8 @@ function EnrollmentModal({
       onSubmitTrial({
         gmail: form.gmail,
         studentName: form.studentName,
-        ctvEmail: form.ctvEmail,
+        ctvEmail: form.ctvMode === "email" ? form.ctvEmail : "",
+        ctvName: form.ctvMode === "name" ? form.ctvName : selectedCtvName,
         groupId: form.groupId,
         courseType: form.courseType,
         date: form.date,
@@ -2691,15 +2729,42 @@ function EnrollmentModal({
         </div>
         <TextField label="Gmail học viên" value={form.gmail} required onChange={(gmail) => setForm({ ...form, gmail })} />
         <TextField label="Tên học viên" value={form.studentName} onChange={(studentName) => setForm({ ...form, studentName })} />
-        <SelectField
-          label="CTV (tài khoản domain)"
-          value={form.ctvEmail}
-          onChange={(ctvEmail) => setForm({ ...form, ctvEmail })}
-          options={ctvOptions}
-        />
-        <SelectField
+        <div className="form-type-toggle">
+          <Segmented
+            value={form.ctvMode}
+            options={[
+              { value: "email", label: "Email nội bộ" },
+              { value: "name", label: "Tên CTV" },
+            ]}
+            onChange={(value) =>
+              setForm({
+                ...form,
+                ctvMode: value as "email" | "name",
+                ctvEmail: value === "email" ? form.ctvEmail || ctvOptions[0]?.value || "" : "",
+                ctvName: value === "name" ? form.ctvName : "",
+              })
+            }
+          />
+        </div>
+        {form.ctvMode === "email" ? (
+          <SelectField
+            label="CTV (tài khoản domain)"
+            value={form.ctvEmail}
+            onChange={(ctvEmail) => setForm({ ...form, ctvEmail })}
+            options={ctvOptions}
+          />
+        ) : (
+          <TextField
+            label="Tên CTV"
+            value={form.ctvName}
+            required
+            onChange={(ctvName) => setForm({ ...form, ctvName })}
+          />
+        )}
+        <GroupSearchField
           label={type === "paid" ? "Nhóm / khóa" : "Google Group"}
           value={form.groupId}
+          groups={groupsForType}
           onChange={(groupId) => {
             const group = state.groups.find((item) => item.id === groupId);
             setForm((current) => ({
@@ -2709,10 +2774,6 @@ function EnrollmentModal({
               tuition: type === "paid" ? String(group?.priceHint ?? current.tuition) : current.tuition,
             }));
           }}
-          options={groupsForType.map((group) => ({
-            value: group.id,
-            label: `${group.name} · ${group.groupEmail}`,
-          }))}
         />
         <TextField
           label={type === "paid" ? "Môn/Combo" : "Môn/Combo thử"}
@@ -2737,7 +2798,7 @@ function EnrollmentModal({
         {type === "paid" ? (
           <div className="form-summary">
             <span>Snapshot hoa hồng</span>
-            <strong>{Math.round((selectedCtv?.commissionRate ?? 0.5) * 100)}%</strong>
+            <strong>{Math.round((activeCtv?.commissionRate ?? state.settings.defaultCommissionRate) * 100)}%</strong>
             <span>Anh nhận</span>
             <strong>{currency(estimatedShare)}</strong>
           </div>
@@ -2829,6 +2890,137 @@ function SelectField({
           </option>
         ))}
       </select>
+    </label>
+  );
+}
+
+function GroupSearchField({
+  label,
+  value,
+  groups,
+  onChange,
+}: {
+  label: string;
+  value: string;
+  groups: CourseGroup[];
+  onChange: (value: string) => void;
+}) {
+  const selectedGroup = groups.find((group) => group.id === value);
+  const selectedLabel = selectedGroup ? `${selectedGroup.name} · ${selectedGroup.groupEmail}` : "";
+  const [searchValue, setSearchValue] = useState(selectedLabel);
+  const [open, setOpen] = useState(false);
+  const [activeIndex, setActiveIndex] = useState(0);
+  const blurTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    setSearchValue(selectedLabel);
+  }, [selectedLabel]);
+
+  useEffect(() => {
+    setActiveIndex(0);
+  }, [searchValue, groups]);
+
+  const filteredGroups = useMemo(() => {
+    const normalized = searchValue.trim().toLowerCase();
+    if (!normalized || normalized === selectedLabel.toLowerCase()) return groups.slice(0, 80);
+    const terms = normalized.split(/\s+/).filter(Boolean);
+    return groups
+      .filter((group) => {
+        const haystack = [
+          group.name,
+          group.groupEmail,
+          group.subject,
+          group.teacher,
+          group.kind,
+          String(group.priceHint),
+        ]
+          .filter(Boolean)
+          .join(" ")
+          .toLowerCase();
+        return terms.every((term) => haystack.includes(term));
+      })
+      .slice(0, 80);
+  }, [groups, searchValue, selectedLabel]);
+
+  function chooseGroup(group: CourseGroup) {
+    onChange(group.id);
+    setSearchValue(`${group.name} · ${group.groupEmail}`);
+    setOpen(false);
+  }
+
+  return (
+    <label className="field-label searchable-field">
+      {label}
+      <div className="searchable-select">
+        <Search className="searchable-select-icon" size={16} aria-hidden="true" />
+        <input
+          className="input searchable-select-input"
+          type="text"
+          value={searchValue}
+          placeholder="Gõ tên nhóm hoặc email nhóm"
+          autoComplete="off"
+          role="combobox"
+          aria-expanded={open}
+          aria-controls="group-search-results"
+          aria-autocomplete="list"
+          onFocus={() => {
+            if (blurTimer.current) clearTimeout(blurTimer.current);
+            setOpen(true);
+          }}
+          onBlur={() => {
+            blurTimer.current = setTimeout(() => {
+              setOpen(false);
+              setSearchValue(selectedLabel);
+            }, 120);
+          }}
+          onChange={(event) => {
+            setSearchValue(event.target.value);
+            setOpen(true);
+          }}
+          onKeyDown={(event) => {
+            if (event.key === "ArrowDown") {
+              event.preventDefault();
+              setOpen(true);
+              setActiveIndex((current) => Math.min(current + 1, Math.max(filteredGroups.length - 1, 0)));
+            } else if (event.key === "ArrowUp") {
+              event.preventDefault();
+              setActiveIndex((current) => Math.max(current - 1, 0));
+            } else if (event.key === "Enter" && open) {
+              const group = filteredGroups[activeIndex];
+              if (group) {
+                event.preventDefault();
+                chooseGroup(group);
+              }
+            } else if (event.key === "Escape") {
+              setOpen(false);
+              setSearchValue(selectedLabel);
+            }
+          }}
+        />
+        {open ? (
+          <div className="searchable-select-menu" id="group-search-results" role="listbox">
+            {filteredGroups.length ? (
+              filteredGroups.map((group, index) => (
+                <button
+                  key={group.id}
+                  type="button"
+                  className={group.id === value || index === activeIndex ? "active" : ""}
+                  role="option"
+                  aria-selected={group.id === value}
+                  onMouseDown={(event) => event.preventDefault()}
+                  onMouseEnter={() => setActiveIndex(index)}
+                  onClick={() => chooseGroup(group)}
+                >
+                  <strong>{group.name}</strong>
+                  <span>{group.groupEmail}</span>
+                </button>
+              ))
+            ) : (
+              <div className="searchable-select-empty">Không tìm thấy nhóm phù hợp.</div>
+            )}
+          </div>
+        ) : null}
+      </div>
     </label>
   );
 }

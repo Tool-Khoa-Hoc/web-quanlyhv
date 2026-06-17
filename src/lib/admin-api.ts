@@ -104,11 +104,12 @@ export async function apiAddTrial(
   name: string,
   trialCourse: string,
   ctvEmail?: string,
+  ctvName?: string,
 ): Promise<{ member: ApiMember; record: TrialRecord }> {
   const res = await fetch("/api/trials", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ groupKey: groupEmail, email, name, trialCourse, ctvEmail }),
+    body: JSON.stringify({ groupKey: groupEmail, email, name, trialCourse, ctvEmail, ctvName }),
   });
   return jsonOrThrow<{ member: ApiMember; record: TrialRecord }>(res);
 }
