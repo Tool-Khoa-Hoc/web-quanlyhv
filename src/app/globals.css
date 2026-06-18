@@ -550,6 +550,10 @@ button {
   color: #334155;
 }
 
+.cash-metric-grid .metric-card {
+  min-height: 96px;
+}
+
 .dashboard-grid {
   display: grid;
   grid-template-columns: repeat(12, minmax(0, 1fr));
@@ -1003,6 +1007,86 @@ button {
     box-shadow 160ms ease;
 }
 
+.searchable-field {
+  min-width: 0;
+}
+
+.searchable-select {
+  position: relative;
+  min-width: 0;
+}
+
+.searchable-select-icon {
+  position: absolute;
+  left: 11px;
+  top: 12px;
+  z-index: 1;
+  color: var(--muted);
+  pointer-events: none;
+}
+
+.searchable-select-input {
+  padding-left: 34px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.searchable-select-menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  right: 0;
+  z-index: 6;
+  max-height: 260px;
+  overflow: auto;
+  padding: 6px;
+  border: 1px solid var(--border-strong);
+  border-radius: 10px;
+  background: #ffffff;
+  box-shadow: var(--shadow-md);
+}
+
+.searchable-select-menu button {
+  display: grid;
+  gap: 3px;
+  width: 100%;
+  min-height: 48px;
+  border: 0;
+  border-radius: 8px;
+  padding: 8px 9px;
+  background: transparent;
+  color: var(--text);
+  text-align: left;
+}
+
+.searchable-select-menu button:hover,
+.searchable-select-menu button.active {
+  background: var(--blue-soft);
+}
+
+.searchable-select-menu strong,
+.searchable-select-menu span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.searchable-select-menu strong {
+  font-size: 13px;
+}
+
+.searchable-select-menu span,
+.searchable-select-empty {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.searchable-select-empty {
+  padding: 10px;
+}
+
 .student-list {
   display: grid;
 }
@@ -1142,6 +1226,7 @@ button {
 .member-modal {
   display: grid;
   gap: 14px;
+  min-width: 0;
   padding: 14px 16px 18px;
 }
 
@@ -1150,17 +1235,73 @@ button {
   color: var(--muted);
   font-size: 13px;
   font-weight: 600;
+  overflow-wrap: anywhere;
 }
 
 .member-add-row {
-  display: grid;
-  grid-template-columns: 1.4fr 1fr 1fr auto auto;
+  display: flex;
+  flex-wrap: wrap;
   gap: 8px;
   align-items: center;
 }
 
+.member-add-row .input {
+  flex: 1 1 170px;
+  min-width: 0;
+}
+
+.member-add-row .select {
+  flex: 1 1 140px;
+  min-width: 0;
+}
+
+.member-add-row .button {
+  flex: 0 0 auto;
+  white-space: nowrap;
+}
+
+.member-modal .table-wrap {
+  overflow-x: hidden;
+}
+
+.member-table {
+  min-width: 0;
+  table-layout: fixed;
+}
+
+.member-table th:first-child,
+.member-table td:first-child {
+  width: 38%;
+}
+
+.member-table th:nth-child(2),
+.member-table td:nth-child(2) {
+  width: 12%;
+}
+
+.member-table th:nth-last-child(2),
+.member-table td:nth-last-child(2) {
+  width: 22%;
+}
+
+.member-table th:last-child,
+.member-table td:last-child {
+  width: 92px;
+}
+
+.member-table strong {
+  max-width: 100%;
+  overflow-wrap: anywhere;
+}
+
+.member-table .select.compact {
+  width: 100%;
+  max-width: 160px;
+}
+
 @media (max-width: 640px) {
   .member-add-row {
+    display: grid;
     grid-template-columns: 1fr 1fr;
   }
 
@@ -1506,6 +1647,11 @@ button {
     width: 100%;
   }
 
+  .member-table th,
+  .member-table td {
+    width: 100% !important;
+  }
+
   .member-table tr {
     margin-bottom: 10px;
     border: 1px solid var(--border);
@@ -1515,9 +1661,9 @@ button {
   }
 
   .member-table td {
-    display: flex;
+    display: grid;
+    grid-template-columns: 72px minmax(0, 1fr);
     align-items: center;
-    justify-content: space-between;
     gap: 12px;
     padding: 8px 0;
     border-bottom: 1px solid #f1f5f9;
@@ -1536,16 +1682,19 @@ button {
   }
 
   .member-table td > strong {
+    min-width: 0;
     overflow-wrap: anywhere;
-    text-align: right;
+    text-align: left;
   }
 
   .member-table td .select.compact {
-    flex: 1 1 auto;
-    max-width: 60%;
+    justify-self: end;
+    width: min(100%, 170px);
+    max-width: 100%;
   }
 
   .member-table td.row-actions {
+    display: flex;
     justify-content: flex-end;
   }
 
@@ -1556,6 +1705,64 @@ button {
   .member-table .mini-button {
     min-height: 36px;
     padding: 0 14px;
+  }
+
+  .jobs-table {
+    min-width: 0;
+  }
+
+  .jobs-table thead {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
+  }
+
+  .jobs-table,
+  .jobs-table tbody,
+  .jobs-table tr,
+  .jobs-table td {
+    display: block;
+    width: 100%;
+  }
+
+  .jobs-table tr {
+    margin-bottom: 10px;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 6px 12px;
+    background: #fff;
+  }
+
+  .jobs-table td {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 8px 0;
+    border-bottom: 1px solid #f1f5f9;
+  }
+
+  .jobs-table tr td:last-child {
+    border-bottom: 0;
+  }
+
+  .jobs-table td::before {
+    content: attr(data-label);
+    flex: 0 0 auto;
+    color: var(--muted);
+    font-size: 12px;
+    font-weight: 750;
+  }
+
+  .jobs-table td.row-actions {
+    justify-content: flex-end;
+  }
+
+  .jobs-table td.row-actions::before {
+    content: none;
   }
 }
 
@@ -1568,6 +1775,18 @@ button {
     gap: 5px;
     padding: 0 8px;
     font-size: 12px;
+  }
+
+  .mobile-nav {
+    left: 6px;
+    right: 6px;
+    gap: 2px;
+    padding: 4px;
+  }
+
+  .mobile-nav-item {
+    min-height: 46px;
+    font-size: 10px;
   }
 
   .login-screen {

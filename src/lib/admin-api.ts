@@ -7,7 +7,16 @@ import type {
   TrialRecord,
   TrialStatus,
 } from "./admin-types";
-import type { Ctv, CourseGroup, Enrollment, GroupMember, GroupRole, Settings, Student } from "./types";
+import type {
+  Ctv,
+  CourseGroup,
+  Enrollment,
+  GroupJob,
+  GroupMember,
+  GroupRole,
+  Settings,
+  Student,
+} from "./types";
 
 // ===== Client gọi tới backend /api/admin/* =====
 
@@ -133,6 +142,7 @@ export interface LedgerPayload {
   ctvs: Ctv[];
   students: Student[];
   enrollments: Enrollment[];
+  jobs: GroupJob[];
   settings: Settings;
 }
 

@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { describeApiError, getDirectory } from "@/lib/google-admin";
-import { requireAdmin } from "@/lib/api-guard";
+import { rejectCrossSiteMutation, requireAdmin } from "@/lib/api-guard";
 import type { ApiGroupRole, ApiMember } from "@/lib/admin-types";
 
 export const dynamic = "force-dynamic";
@@ -17,6 +17,8 @@ export async function DELETE(
   const { groupKey, memberKey } = await params;
   const session = await requireAdmin();
   if (session instanceof NextResponse) return session;
+  const crossSite = rejectCrossSiteMutation(_request);
+  if (crossSite) return crossSite;
   try {
     const directory = getDirectory();
     await directory.members.delete({
@@ -39,6 +41,8 @@ export async function PATCH(
   const { groupKey, memberKey } = await params;
   const session = await requireAdmin();
   if (session instanceof NextResponse) return session;
+  const crossSite = rejectCrossSiteMutation(request);
+  if (crossSite) return crossSite;
   try {
     const body = (await request.json()) as { role?: string };
     const role = body.role?.toUpperCase() as ApiGroupRole | undefined;

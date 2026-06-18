@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { describeApiError, getDirectory, getCtvTrialGroupKey } from "@/lib/google-admin";
-import { requireGroupAccess, requireSession } from "@/lib/api-guard";
+import { rejectCrossSiteMutation, requireGroupAccess, requireSession } from "@/lib/api-guard";
 import { KvStoreError } from "@/lib/kv";
 import {
   TrialStoreError,
@@ -65,6 +65,8 @@ export async function POST(request: Request) {
 
   const session = await requireGroupAccess(groupKey);
   if (session instanceof NextResponse) return session;
+  const crossSite = rejectCrossSiteMutation(request);
+  if (crossSite) return crossSite;
 
   // Mặc định gắn người đang đăng nhập. Riêng admin được phép gắn cho 1 CTV (domain) khác.
   const requestedCtvEmail = body.ctvEmail?.trim().toLowerCase() ?? "";
@@ -142,6 +144,8 @@ export async function PATCH(request: Request) {
 
   const session = await requireGroupAccess(groupKey);
   if (session instanceof NextResponse) return session;
+  const crossSite = rejectCrossSiteMutation(request);
+  if (crossSite) return crossSite;
 
   try {
     const ok = await updateTrialStatus(groupKey, email, status);

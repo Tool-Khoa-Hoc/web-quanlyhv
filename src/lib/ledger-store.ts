@@ -1,7 +1,7 @@
 import "server-only";
 
 import { getRedis, isKvConfigured } from "./kv";
-import type { Ctv, Enrollment, Settings, Student } from "./types";
+import type { Ctv, Enrollment, GroupJob, Settings, Student } from "./types";
 
 // ===== Sổ cái dùng chung (Vercel KV / Upstash Redis) =====
 // Lưu phần dữ liệu nghiệp vụ của admin (CTV, học viên, giao dịch, thông số) để
@@ -16,6 +16,7 @@ export interface LedgerData {
   ctvs: Ctv[];
   students: Student[];
   enrollments: Enrollment[];
+  jobs: GroupJob[];
   settings: Settings;
   rev: number;
   updatedAt: string;
@@ -66,6 +67,7 @@ export async function writeLedger(
     ctvs: payload.ctvs,
     students: payload.students,
     enrollments: payload.enrollments,
+    jobs: payload.jobs,
     settings: payload.settings,
     rev: currentRev + 1,
     updatedAt: new Date().toISOString(),

@@ -2,7 +2,7 @@ import "server-only";
 
 import { NextResponse } from "next/server";
 
-import { getSession, type AppSession } from "./auth";
+import { ctvEmailAllowed, getSession, type AppSession } from "./auth";
 import { getCtvTrialGroupKey, isCtvTrialGroup } from "./google-admin";
 
 // Helper bảo vệ các API route: trả về session hợp lệ hoặc NextResponse lỗi.
@@ -12,6 +12,9 @@ export async function requireSession(): Promise<AppSession | NextResponse> {
   const session = await getSession();
   if (!session) {
     return NextResponse.json({ error: "Chưa đăng nhập." }, { status: 401 });
+  }
+  if (session.role === "ctv" && !ctvEmailAllowed(session.email)) {
+    return NextResponse.json({ error: "Tài khoản CTV chưa được cấp quyền." }, { status: 403 });
   }
   return session;
 }
@@ -25,6 +28,18 @@ export async function requireAdmin(): Promise<AppSession | NextResponse> {
     return NextResponse.json({ error: "Chỉ admin được phép." }, { status: 403 });
   }
   return session;
+}
+
+export function rejectCrossSiteMutation(request: Request): NextResponse | null {
+  const origin = request.headers.get("origin");
+  if (!origin) return null;
+
+  const allowed = new Set([new URL(request.url).origin]);
+  const appBaseUrl = process.env.APP_BASE_URL?.trim();
+  if (appBaseUrl) allowed.add(appBaseUrl.replace(/\/+$/, ""));
+
+  if (allowed.has(origin)) return null;
+  return NextResponse.json({ error: "Nguồn yêu cầu không hợp lệ." }, { status: 403 });
 }
 
 /**
@@ -41,6 +56,9 @@ export async function requireGroupAccess(groupKey: string): Promise<AppSession |
   if (session.role === "admin") return session;
 
   // CTV
+  if (!ctvEmailAllowed(session.email)) {
+    return NextResponse.json({ error: "Tài khoản CTV chưa được cấp quyền." }, { status: 403 });
+  }
   if (!getCtvTrialGroupKey()) {
     return NextResponse.json(
       { error: "Hệ thống chưa cấu hình nhóm học thử cho CTV (CTV_TRIAL_GROUP_EMAIL)." },

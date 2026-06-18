@@ -4,6 +4,7 @@ import {
   OAUTH_STATE_COOKIE,
   SESSION_COOKIE,
   createOAuthClient,
+  ctvEmailAllowed,
   getOAuthConfig,
   roleForEmail,
   signSession,
@@ -61,6 +62,9 @@ export async function GET(request: Request) {
     }
 
     const role = roleForEmail(email, config);
+    if (role === "ctv" && !ctvEmailAllowed(email)) {
+      return errorRedirect(origin, "Tài khoản này chưa được cấp quyền CTV.");
+    }
     const { token, maxAge } = signSession(
       { email, name: payload.name ?? email, role },
       config.sessionSecret,

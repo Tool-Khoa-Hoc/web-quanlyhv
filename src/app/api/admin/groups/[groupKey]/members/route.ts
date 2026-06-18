@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { describeApiError, getDirectory } from "@/lib/google-admin";
-import { requireGroupAccess } from "@/lib/api-guard";
+import { rejectCrossSiteMutation, requireGroupAccess } from "@/lib/api-guard";
 import type { ApiGroupRole, ApiMember } from "@/lib/admin-types";
 
 export const dynamic = "force-dynamic";
@@ -53,6 +53,8 @@ export async function POST(
   const { groupKey } = await params;
   const session = await requireGroupAccess(decodeURIComponent(groupKey));
   if (session instanceof NextResponse) return session;
+  const crossSite = rejectCrossSiteMutation(request);
+  if (crossSite) return crossSite;
   try {
     const body = (await request.json()) as { email?: string; role?: string };
     const email = body.email?.trim();

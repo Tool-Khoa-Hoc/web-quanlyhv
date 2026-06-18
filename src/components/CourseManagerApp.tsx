@@ -15,6 +15,7 @@ import {
   ListChecks,
   LogOut,
   LucideIcon,
+  Pencil,
   Plus,
   ReceiptText,
   RefreshCw,
@@ -108,7 +109,7 @@ const navItems: Array<{ key: ViewKey; label: string; icon: LucideIcon }> = [
   { key: "jobs", label: "Jobs", icon: ListChecks },
   { key: "settings", label: "Cài đặt", icon: Settings },
 ];
-const mobileNavKeys: ViewKey[] = ["dashboard", "transactions", "trials", "groups"];
+const mobileNavKeys: ViewKey[] = ["dashboard", "transactions", "trials", "groups", "jobs"];
 const mobileNavItems = mobileNavKeys
   .map((key) => navItems.find((item) => item.key === key))
   .filter((item): item is (typeof navItems)[number] => Boolean(item));
@@ -125,6 +126,13 @@ interface PaidFormState {
   tuition: string;
   date: string;
   note: string;
+}
+
+interface EditPaidFormState extends PaidFormState {
+  id: string;
+  commissionRate: string;
+  paymentStatus: PaymentStatus;
+  paymentReceivedDate: string;
 }
 
 interface TrialFormState {
@@ -213,6 +221,7 @@ export function CourseManagerApp({ session }: { session: ClientSession }) {
   const [ctvFilter, setCtvFilter] = useState("all");
   const [paymentFilter, setPaymentFilter] = useState<"all" | PaymentStatus>("all");
   const [trialFilter, setTrialFilter] = useState<"all" | TrialResult>("all");
+  const [editingPaidId, setEditingPaidId] = useState<string | null>(null);
   const [adminNotice, setAdminNotice] = useState("");
   const [adminStatus, setAdminStatus] = useState<AdminSdkState>({ state: "checking" });
   // Kho học thử dùng chung (Google Sheet) — đồng bộ giữa CTV và admin.
@@ -237,7 +246,7 @@ export function CourseManagerApp({ session }: { session: ClientSession }) {
   const ledgerDirtyRef = useRef(false);
   const ledgerSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // Áp sổ cái từ server vào state (giữ nguyên groups/groupMembers/jobs cục bộ).
+  // Áp sổ cái từ server vào state (giữ nguyên groups/groupMembers cục bộ).
   const applyLedger = useCallback((ledger: LedgerData) => {
     ledgerRevRef.current = ledger.rev;
     ledgerSyncingRef.current = true;
@@ -246,6 +255,7 @@ export function CourseManagerApp({ session }: { session: ClientSession }) {
       ctvs: ledger.ctvs,
       students: ledger.students,
       enrollments: ledger.enrollments,
+      jobs: ledger.jobs ?? current.jobs,
       settings: { ...current.settings, ...ledger.settings },
     }));
   }, []);
@@ -267,6 +277,7 @@ export function CourseManagerApp({ session }: { session: ClientSession }) {
             ctvs: current.ctvs,
             students: current.students,
             enrollments: current.enrollments,
+            jobs: current.jobs,
             settings: current.settings,
           },
           ledgerRevRef.current,
@@ -280,8 +291,9 @@ export function CourseManagerApp({ session }: { session: ClientSession }) {
           break;
         }
       } while (ledgerDirtyRef.current);
-    } catch {
-      // KV chưa cấu hình / lỗi mạng: bỏ qua, localStorage vẫn giữ dữ liệu.
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      setAdminNotice(`Không lưu được sổ cái dùng chung. Dữ liệu hiện chỉ lưu trên máy này. ${message}`);
     } finally {
       ledgerSavingRef.current = false;
     }
@@ -400,7 +412,16 @@ export function CourseManagerApp({ session }: { session: ClientSession }) {
     return () => {
       if (ledgerSaveTimer.current) clearTimeout(ledgerSaveTimer.current);
     };
-  }, [hydrated, isAdmin, flushLedger, state.ctvs, state.students, state.enrollments, state.settings]);
+  }, [
+    hydrated,
+    isAdmin,
+    flushLedger,
+    state.ctvs,
+    state.students,
+    state.enrollments,
+    state.jobs,
+    state.settings,
+  ]);
 
   // Admin: làm tươi sổ cái khi quay lại tab + poll định kỳ (bắt thay đổi từ máy khác).
   useEffect(() => {
@@ -629,6 +650,55 @@ export function CourseManagerApp({ session }: { session: ClientSession }) {
         };
       }),
     }));
+  }
+
+  function updatePaidEnrollment(form: EditPaidFormState) {
+    setState((current) => {
+      const target = current.enrollments.find((item) => item.id === form.id && item.type === "paid");
+      if (!target) return current;
+
+      const resolved = resolveCtv(current, { email: form.ctvEmail, name: form.ctvName });
+      const ctv = resolved.ctv;
+      const withStudent = findOrCreateStudent(resolved.state, form.gmail, form.studentName);
+      const tuition = Math.max(0, Number(form.tuition) || 0);
+      const rateNumber = Number(form.commissionRate);
+      const commissionRate = Number.isFinite(rateNumber)
+        ? Math.min(1, Math.max(0, rateNumber / 100))
+        : target.commissionRateSnapshot;
+      const paymentReceivedDate =
+        form.paymentStatus === "received"
+          ? form.paymentReceivedDate || target.paymentReceivedDate || todayISO()
+          : undefined;
+
+      return {
+        ...withStudent.state,
+        students: withStudent.state.students.map((student) =>
+          student.id === withStudent.studentId
+            ? { ...student, name: form.studentName.trim() || student.name }
+            : student,
+        ),
+        enrollments: withStudent.state.enrollments.map((item) =>
+          item.id === form.id
+            ? {
+                ...item,
+                date: form.date || item.date,
+                ctvId: ctv.id,
+                studentId: withStudent.studentId,
+                groupId: form.groupId || item.groupId,
+                courseType: form.courseType.trim() || item.courseType,
+                tuition,
+                commissionRateSnapshot: commissionRate,
+                ownerShare: ownerShare(tuition, commissionRate),
+                paymentStatus: form.paymentStatus,
+                paymentReceivedDate,
+                note: form.note,
+              }
+            : item,
+        ),
+      };
+    });
+    setEditingPaidId(null);
+    setActiveView("transactions");
   }
 
   // Đổi CTV cho 1 giao dịch đã ghi (sửa khi gán nhầm). Tính lại hoa hồng + tiền anh nhận.
@@ -1065,6 +1135,9 @@ export function CourseManagerApp({ session }: { session: ClientSession }) {
   }
 
   const adminWarning = adminStatus.state === "error";
+  const editingPaid = editingPaidId
+    ? state.enrollments.find((item) => item.id === editingPaidId && item.type === "paid")
+    : null;
 
   const showMobileNav = visibleMobileNavItems.length > 1;
 
@@ -1118,17 +1191,27 @@ export function CourseManagerApp({ session }: { session: ClientSession }) {
           <div className="topbar-actions">
             {isAdmin ? (
               <>
-                <button className="icon-button" title="Xóa bộ lọc" type="button" onClick={resetFilters}>
-                  <Filter size={18} />
+                <button
+                  className="icon-button"
+                  title="Xóa bộ lọc"
+                  aria-label="Xóa bộ lọc"
+                  type="button"
+                  onClick={resetFilters}
+                >
+                  <Filter size={18} aria-hidden="true" />
+                </button>
+                <button className="button secondary" type="button" onClick={() => openEnrollmentModal("trial")}>
+                  <FlaskConical size={17} />
+                  <span>Học thử</span>
                 </button>
                 <button className="button primary" type="button" onClick={() => openEnrollmentModal("transaction")}>
                   <Plus size={17} />
-                  <span>Thêm</span>
+                  <span>Trả phí</span>
                 </button>
               </>
             ) : null}
-            <a className="button ghost" href="/api/auth/logout" title="Đăng xuất">
-              <LogOut size={17} />
+            <a className="button ghost" href="/api/auth/logout" title="Đăng xuất" aria-label="Đăng xuất">
+              <LogOut size={17} aria-hidden="true" />
               <span>Đăng xuất</span>
             </a>
           </div>
@@ -1140,6 +1223,16 @@ export function CourseManagerApp({ session }: { session: ClientSession }) {
             <span>Admin SDK chưa sẵn sàng: {adminStatus.message}</span>
             <button type="button" onClick={() => setActiveView("settings")}>
               Mở cài đặt
+            </button>
+          </div>
+        ) : null}
+
+        {isAdmin && adminNotice ? (
+          <div className="alert-strip app-notice" role="status" aria-live="polite">
+            <AlertTriangle size={18} aria-hidden="true" />
+            <span>{adminNotice}</span>
+            <button type="button" onClick={() => setAdminNotice("")}>
+              Đóng
             </button>
           </div>
         ) : null}
@@ -1166,6 +1259,7 @@ export function CourseManagerApp({ session }: { session: ClientSession }) {
               onTogglePayment={togglePayment}
               onEnqueueJob={enqueueGroupJob}
               onChangeCtv={changeEnrollmentCtv}
+              onEditTransaction={setEditingPaidId}
               domainMembers={domainMembers}
             />
           ) : null}
@@ -1252,6 +1346,16 @@ export function CourseManagerApp({ session }: { session: ClientSession }) {
           onClose={() => setModal(null)}
           onSubmitPaid={addPaidEnrollment}
           onSubmitTrial={addTrialEnrollment}
+        />
+      ) : null}
+
+      {editingPaid ? (
+        <EditTransactionModal
+          enrollment={editingPaid}
+          state={state}
+          domainMembers={domainMembers}
+          onClose={() => setEditingPaidId(null)}
+          onSubmit={updatePaidEnrollment}
         />
       ) : null}
     </div>
@@ -1397,6 +1501,7 @@ function TransactionsView({
   onTogglePayment,
   onEnqueueJob,
   onChangeCtv,
+  onEditTransaction,
   domainMembers,
 }: {
   state: AppState;
@@ -1409,13 +1514,31 @@ function TransactionsView({
   onPaymentFilter: (status: "all" | PaymentStatus) => void;
   onTogglePayment: (id: string) => void;
   onEnqueueJob: (enrollment: Enrollment) => void;
+  onEditTransaction: (id: string) => void;
 }) {
+  const cash = rows.reduce(
+    (acc, item) => {
+      acc.tuition += item.tuition;
+      acc.expected += item.ownerShare;
+      if (item.paymentStatus === "received") acc.received += item.ownerShare;
+      return acc;
+    },
+    { tuition: 0, expected: 0, received: 0 },
+  );
+  const debt = cash.expected - cash.received;
+
   return (
     <>
       <PageTitle
         title="Giao dịch"
         subtitle="Theo dõi đăng ký trả phí, snapshot hoa hồng và tiền CTV đã chuyển."
       />
+      <div className="metric-grid cash-metric-grid">
+        <MetricCard label="Doanh số" value={currency(cash.tuition)} icon={ReceiptText} tone="slate" />
+        <MetricCard label="Anh nhận" value={currency(cash.expected)} icon={CircleDollarSign} tone="blue" />
+        <MetricCard label="Đã thu" value={currency(cash.received)} icon={CheckCircle2} tone="green" />
+        <MetricCard label="Còn nợ" value={currency(debt)} icon={WalletCards} tone="amber" />
+      </div>
       <FilterBar
         state={state}
         ctvFilter={ctvFilter}
@@ -1457,6 +1580,7 @@ function TransactionsView({
                   onTogglePayment={onTogglePayment}
                   onEnqueueJob={onEnqueueJob}
                   onChangeCtv={onChangeCtv}
+                  onEditTransaction={onEditTransaction}
                   domainMembers={domainMembers}
                 />
               ))
@@ -2368,30 +2492,30 @@ function JobsView({
     <>
       <PageTitle title="Automation / Jobs" subtitle="Queue add/remove Google Group và trạng thái Admin SDK." />
       <section className="panel">
-        <DataTable>
-          <thead>
-            <tr>
-              <th>Loại job</th>
-              <th>Gmail</th>
-              <th>Nhóm</th>
-              <th>Trạng thái</th>
-              <th>Lần thử</th>
-              <th>Lỗi</th>
-              <th></th>
-            </tr>
-          </thead>
-          <tbody>
-            {state.jobs.length ? (
-              state.jobs.map((job) => (
+        {state.jobs.length ? (
+          <DataTable className="jobs-table">
+            <thead>
+              <tr>
+                <th>Loại job</th>
+                <th>Gmail</th>
+                <th>Nhóm</th>
+                <th>Trạng thái</th>
+                <th>Lần thử</th>
+                <th>Lỗi</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody>
+              {state.jobs.map((job) => (
                 <tr key={job.id}>
-                  <td>{jobLabel(job)}</td>
-                  <td>{job.studentGmail ?? "-"}</td>
-                  <td>{groupMap.get(job.groupId ?? "")?.name ?? "-"}</td>
-                  <td>
+                  <td data-label="Loại job">{jobLabel(job)}</td>
+                  <td data-label="Gmail">{job.studentGmail ?? "-"}</td>
+                  <td data-label="Nhóm">{groupMap.get(job.groupId ?? "")?.name ?? "-"}</td>
+                  <td data-label="Trạng thái">
                     <JobBadge status={job.status} />
                   </td>
-                  <td>{job.attempts}</td>
-                  <td>{job.error ?? "-"}</td>
+                  <td data-label="Lần thử">{job.attempts}</td>
+                  <td data-label="Lỗi">{job.error ?? "-"}</td>
                   <td className="row-actions">
                     {job.status === "failed" || job.status === "needs_session" ? (
                       <button className="mini-button" type="button" onClick={() => onRetryJob(job.id)}>
@@ -2405,12 +2529,12 @@ function JobsView({
                     ) : null}
                   </td>
                 </tr>
-              ))
-            ) : (
-              <EmptyTableRow colSpan={7} label="Chưa có job automation." />
-            )}
-          </tbody>
-        </DataTable>
+              ))}
+            </tbody>
+          </DataTable>
+        ) : (
+          <EmptyState label="Chưa có job automation." />
+        )}
       </section>
     </>
   );
@@ -2515,6 +2639,7 @@ function TransactionRow({
   onTogglePayment,
   onEnqueueJob,
   onChangeCtv,
+  onEditTransaction,
   domainMembers = [],
 }: {
   enrollment: Enrollment;
@@ -2523,6 +2648,7 @@ function TransactionRow({
   onTogglePayment: (id: string) => void;
   onEnqueueJob?: (enrollment: Enrollment) => void;
   onChangeCtv?: (enrollmentId: string, ctvEmail: string) => void;
+  onEditTransaction?: (id: string) => void;
   domainMembers?: DomainMember[];
 }) {
   const student = state.students.find((item) => item.id === enrollment.studentId);
@@ -2596,6 +2722,12 @@ function TransactionRow({
         <StatusBadge variant="info">{group?.groupEmail ?? "Chưa gán"}</StatusBadge>
       </td>
       <td className="row-actions">
+        {onEditTransaction ? (
+          <button className="mini-button" type="button" onClick={() => onEditTransaction(enrollment.id)}>
+            <Pencil size={14} />
+            Sửa
+          </button>
+        ) : null}
         {onEnqueueJob ? (
           <button className="mini-button" type="button" onClick={() => onEnqueueJob(enrollment)}>
             <Send size={14} />
@@ -2604,6 +2736,191 @@ function TransactionRow({
         ) : null}
       </td>
     </tr>
+  );
+}
+
+function EditTransactionModal({
+  enrollment,
+  state,
+  domainMembers,
+  onClose,
+  onSubmit,
+}: {
+  enrollment: Enrollment;
+  state: AppState;
+  domainMembers: DomainMember[];
+  onClose: () => void;
+  onSubmit: (form: EditPaidFormState) => void;
+}) {
+  const student = state.students.find((item) => item.id === enrollment.studentId);
+  const ctv = state.ctvs.find((item) => item.id === enrollment.ctvId);
+  const paidGroups = state.groups.filter((group) => group.kind !== "trial");
+  const groupsForEdit = paidGroups.length ? paidGroups : state.groups;
+  const currentGroup = state.groups.find((group) => group.id === enrollment.groupId);
+  const domainOptions = domainMembers.map((member) => ({
+    value: member.email,
+    label: member.name ? `${member.name} · ${member.email}` : member.email,
+  }));
+  const localOptions = state.ctvs
+    .filter((item) => item.email.trim())
+    .map((item) => ({ value: item.email, label: ctvDisplay(item) }));
+  const ctvOptions = [
+    { value: "", label: "Không chọn email" },
+    ...(domainOptions.length ? domainOptions : localOptions),
+  ];
+  if (ctv?.email && !ctvOptions.some((option) => option.value.toLowerCase() === ctv.email.toLowerCase())) {
+    ctvOptions.splice(1, 0, { value: ctv.email, label: ctvDisplay(ctv) });
+  }
+
+  const [form, setForm] = useState<EditPaidFormState>({
+    id: enrollment.id,
+    gmail: student?.gmail ?? "",
+    studentName: student?.name ?? "",
+    ctvEmail: ctv?.email ?? "",
+    ctvName: ctv?.name ?? "",
+    groupId: enrollment.groupId,
+    courseType: enrollment.courseType || currentGroup?.name || "",
+    tuition: String(enrollment.tuition),
+    commissionRate: String(Math.round(enrollment.commissionRateSnapshot * 10000) / 100),
+    date: enrollment.date || todayISO(),
+    paymentStatus: enrollment.paymentStatus,
+    paymentReceivedDate: enrollment.paymentReceivedDate ?? todayISO(),
+    note: enrollment.note ?? "",
+  });
+
+  const tuition = Math.max(0, Number(form.tuition) || 0);
+  const commissionRate = Math.min(1, Math.max(0, (Number(form.commissionRate) || 0) / 100));
+  const estimatedShare = ownerShare(tuition, commissionRate);
+
+  function submit(event: FormEvent) {
+    event.preventDefault();
+    onSubmit(form);
+  }
+
+  return (
+    <ModalShell title="Sửa giao dịch" onClose={onClose}>
+      <form className="form-grid" onSubmit={submit}>
+        <TextField
+          label="Gmail học viên"
+          value={form.gmail}
+          required
+          onChange={(gmail) => setForm({ ...form, gmail })}
+        />
+        <TextField
+          label="Tên học viên"
+          value={form.studentName}
+          onChange={(studentName) => setForm({ ...form, studentName })}
+        />
+        <SelectField
+          label="Email CTV"
+          value={form.ctvEmail}
+          options={ctvOptions}
+          onChange={(ctvEmail) => {
+            const matchedDomain = domainMembers.find(
+              (member) => member.email.trim().toLowerCase() === ctvEmail.trim().toLowerCase(),
+            );
+            const matchedCtv = state.ctvs.find(
+              (item) => item.email.trim().toLowerCase() === ctvEmail.trim().toLowerCase(),
+            );
+            setForm({
+              ...form,
+              ctvEmail,
+              ctvName: matchedDomain?.name ?? matchedCtv?.name ?? form.ctvName,
+            });
+          }}
+        />
+        <TextField
+          label="Tên CTV"
+          value={form.ctvName}
+          required={!form.ctvEmail}
+          onChange={(ctvName) => setForm({ ...form, ctvName })}
+        />
+        <GroupSearchField
+          label="Nhóm / khóa"
+          value={form.groupId}
+          groups={groupsForEdit}
+          onChange={(groupId) => {
+            const group = state.groups.find((item) => item.id === groupId);
+            setForm({
+              ...form,
+              groupId,
+              courseType: group?.name ?? form.courseType,
+              tuition: group?.priceHint ? String(group.priceHint) : form.tuition,
+            });
+          }}
+        />
+        <TextField
+          label="Môn/Combo"
+          value={form.courseType}
+          required
+          onChange={(courseType) => setForm({ ...form, courseType })}
+        />
+        <TextField
+          label="Học phí"
+          value={form.tuition}
+          type="number"
+          required
+          onChange={(tuition) => setForm({ ...form, tuition })}
+        />
+        <TextField
+          label="% hoa hồng snapshot"
+          value={form.commissionRate}
+          type="number"
+          required
+          onChange={(commissionRate) => setForm({ ...form, commissionRate })}
+        />
+        <TextField
+          label="Ngày giao dịch"
+          value={form.date}
+          type="date"
+          required
+          onChange={(date) => setForm({ ...form, date })}
+        />
+        <SelectField
+          label="Trạng thái tiền"
+          value={form.paymentStatus}
+          options={[
+            { value: "pending", label: "Chưa trả" },
+            { value: "received", label: "Đã trả" },
+          ]}
+          onChange={(paymentStatus) =>
+            setForm({
+              ...form,
+              paymentStatus: paymentStatus as PaymentStatus,
+              paymentReceivedDate:
+                paymentStatus === "received"
+                  ? form.paymentReceivedDate || todayISO()
+                  : form.paymentReceivedDate,
+            })
+          }
+        />
+        {form.paymentStatus === "received" ? (
+          <TextField
+            label="Ngày nhận tiền"
+            value={form.paymentReceivedDate}
+            type="date"
+            onChange={(paymentReceivedDate) => setForm({ ...form, paymentReceivedDate })}
+          />
+        ) : null}
+        <TextField label="Ghi chú" value={form.note} onChange={(note) => setForm({ ...form, note })} />
+        <div className="form-summary">
+          <span>Học phí</span>
+          <strong>{currency(tuition)}</strong>
+          <span>Anh nhận sau hoa hồng</span>
+          <strong>{currency(estimatedShare)}</strong>
+        </div>
+        <div className="modal-actions">
+          <button className="button ghost" type="button" onClick={onClose}>
+            <X size={17} />
+            <span>Hủy</span>
+          </button>
+          <button className="button primary" type="submit">
+            <Save size={17} />
+            <span>Lưu thay đổi</span>
+          </button>
+        </div>
+      </form>
+    </ModalShell>
   );
 }
 
@@ -3067,8 +3384,12 @@ function PanelHeader({ title, action }: { title: string; action?: string }) {
   );
 }
 
-function DataTable({ children }: { children: React.ReactNode }) {
-  return <div className="table-wrap"><table className="data-table">{children}</table></div>;
+function DataTable({ children, className }: { children: React.ReactNode; className?: string }) {
+  return (
+    <div className="table-wrap">
+      <table className={className ? `data-table ${className}` : "data-table"}>{children}</table>
+    </div>
+  );
 }
 
 function EmptyState({ label }: { label: string }) {
@@ -3099,8 +3420,12 @@ function FilterBar({
   return (
     <div className="filter-bar">
       <label className="inline-filter">
-        <SlidersHorizontal size={17} />
-        <select value={ctvFilter} onChange={(event) => onCtvFilter(event.target.value)}>
+        <SlidersHorizontal size={17} aria-hidden="true" />
+        <select
+          aria-label="Lọc theo CTV"
+          value={ctvFilter}
+          onChange={(event) => onCtvFilter(event.target.value)}
+        >
           <option value="all">Tất cả CTV</option>
           {state.ctvs.map((ctv) => (
             <option key={ctv.id} value={ctv.id}>
@@ -3130,6 +3455,7 @@ function Segmented({
           key={option.value}
           type="button"
           className={value === option.value ? "active" : ""}
+          aria-pressed={value === option.value}
           onClick={() => onChange(option.value)}
         >
           {option.label}

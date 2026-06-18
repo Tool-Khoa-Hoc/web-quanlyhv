@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 
-import { requireAdmin } from "@/lib/api-guard";
+import { rejectCrossSiteMutation, requireAdmin } from "@/lib/api-guard";
 import { describeApiError } from "@/lib/google-admin";
 import { KvStoreError } from "@/lib/kv";
 import {
@@ -40,6 +40,8 @@ export async function GET() {
 export async function PUT(request: Request) {
   const session = await requireAdmin();
   if (session instanceof NextResponse) return session;
+  const crossSite = rejectCrossSiteMutation(request);
+  if (crossSite) return crossSite;
   if (!isLedgerConfigured()) {
     return NextResponse.json({ error: "Chưa cấu hình kho dữ liệu." }, { status: 503 });
   }
@@ -54,6 +56,7 @@ export async function PUT(request: Request) {
     !Array.isArray(payload.ctvs) ||
     !Array.isArray(payload.students) ||
     !Array.isArray(payload.enrollments) ||
+    !Array.isArray(payload.jobs) ||
     !payload.settings
   ) {
     return NextResponse.json({ error: "Payload sổ cái không hợp lệ." }, { status: 400 });

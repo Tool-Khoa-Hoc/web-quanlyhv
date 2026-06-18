@@ -78,6 +78,19 @@ export function roleForEmail(email: string, config: OAuthConfig): AppRole {
   return config.adminEmails.includes(email.toLowerCase()) ? "admin" : "ctv";
 }
 
+function envEmailList(name: string): string[] {
+  return (process.env[name] ?? "")
+    .split(",")
+    .map((email) => email.trim().toLowerCase())
+    .filter(Boolean);
+}
+
+export function ctvEmailAllowed(email: string): boolean {
+  const allowlist = envEmailList("APP_CTV_EMAILS");
+  if (!allowlist.length) return false;
+  return allowlist.includes(email.trim().toLowerCase());
+}
+
 /**
  * Origin chuẩn để dựng redirect URI cho OAuth.
  * Ưu tiên APP_BASE_URL (cố định, khớp với URI đã đăng ký ở Google Console),
