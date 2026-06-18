@@ -1939,7 +1939,6 @@ function CtvView({
 function StudentsView({ state }: { state: AppState }) {
   const ctvMap = byId(state.ctvs);
   const groupMap = byId(state.groups);
-
   return (
     <>
       <PageTitle title="Học viên" subtitle="Hồ sơ theo Gmail, lịch sử học thử/trả phí và nhóm đang liên quan." />
@@ -2125,7 +2124,7 @@ function GroupsView({
               state.jobs.slice(0, 6).map((job) => (
                 <div className="queue-row" key={job.id}>
                   <div>
-                    <strong>{groupMap.get(job.groupId ?? "")?.name ?? "Admin SDK"}</strong>
+                    <strong>{jobGroupLabel(state, job, "Admin SDK")}</strong>
                     <span>{job.studentGmail ?? "Tài khoản automation"}</span>
                   </div>
                   <JobBadge status={job.status} />
@@ -2510,7 +2509,7 @@ function JobsView({
                 <tr key={job.id}>
                   <td data-label="Loại job">{jobLabel(job)}</td>
                   <td data-label="Gmail">{job.studentGmail ?? "-"}</td>
-                  <td data-label="Nhóm">{groupMap.get(job.groupId ?? "")?.name ?? "-"}</td>
+                  <td data-label="Nhóm">{jobGroupLabel(state, job)}</td>
                   <td data-label="Trạng thái">
                     <JobBadge status={job.status} />
                   </td>
@@ -3591,6 +3590,34 @@ function createJob(type: GroupJob["type"], groupId?: string, studentGmail?: stri
     attempts: 0,
     createdAt: new Date().toISOString(),
   };
+}
+
+function jobGroupLabel(state: AppState, job: GroupJob, fallback = "-") {
+  const directGroup = job.groupId
+    ? state.groups.find((group) => group.id === job.groupId)
+    : undefined;
+  if (directGroup) return directGroup.name;
+
+  const gmail = job.studentGmail?.trim().toLowerCase();
+  if (!gmail) return fallback;
+
+  const studentIds = new Set(
+    state.students
+      .filter((student) => student.gmail.trim().toLowerCase() === gmail)
+      .map((student) => student.id),
+  );
+  if (!studentIds.size) return fallback;
+
+  const labels = state.enrollments
+    .filter((enrollment) => studentIds.has(enrollment.studentId))
+    .filter((enrollment) => !job.groupId || enrollment.groupId === job.groupId)
+    .map((enrollment) => {
+      const group = state.groups.find((item) => item.id === enrollment.groupId);
+      return group?.name || enrollment.courseType;
+    })
+    .filter((label, index, all) => label && all.indexOf(label) === index);
+
+  return labels.length ? labels.join(", ") : fallback;
 }
 
 function addDaysISO(days: number) {
