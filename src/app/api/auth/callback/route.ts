@@ -62,7 +62,7 @@ export async function GET(request: Request) {
     }
 
     const role = roleForEmail(email, config);
-    if (role === "ctv" && !ctvEmailAllowed(email)) {
+    if (role === "ctv" && !(await ctvEmailAllowed(email))) {
       return errorRedirect(origin, "Tài khoản này chưa được cấp quyền CTV.");
     }
     const { token, maxAge } = signSession(

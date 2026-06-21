@@ -4,7 +4,7 @@ import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 import { cookies } from "next/headers";
 import { google } from "googleapis";
 
-import { AdminConfigError, getWorkspaceDomain } from "./google-admin";
+import { AdminConfigError, getWorkspaceDomain, userIsGroupMember } from "./google-admin";
 
 // ===== Cấu hình OAuth + Session cho đăng nhập cộng tác viên =====
 
@@ -85,10 +85,14 @@ function envEmailList(name: string): string[] {
     .filter(Boolean);
 }
 
-export function ctvEmailAllowed(email: string): boolean {
+export async function ctvEmailAllowed(email: string): Promise<boolean> {
+  const normalizedEmail = email.trim().toLowerCase();
   const allowlist = envEmailList("APP_CTV_EMAILS");
-  if (!allowlist.length) return false;
-  return allowlist.includes(email.trim().toLowerCase());
+  if (allowlist.includes(normalizedEmail)) return true;
+
+  const accessGroup = process.env.CTV_ACCESS_GROUP_EMAIL?.trim().toLowerCase();
+  if (!accessGroup) return false;
+  return userIsGroupMember(normalizedEmail, accessGroup);
 }
 
 /**

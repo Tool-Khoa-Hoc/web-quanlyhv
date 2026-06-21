@@ -13,15 +13,15 @@ Group mà họ **được thêm làm thành viên**.
 - **Vai trò:**
   - **Admin** = email impersonate (`GOOGLE_ADMIN_IMPERSONATE_EMAIL`) + các email
     trong `APP_ADMIN_EMAILS`. Thấy toàn bộ app.
-  - **CTV** = mọi tài khoản domain còn lại. Chỉ thấy trang "Nhóm của tôi".
-- **Cấp quyền nhóm = thêm CTV vào Google Group.** Khi CTV đăng nhập, app gọi
-  Directory API `groups.list({ userKey })` → trả đúng các nhóm họ là thành viên.
-  Mọi thao tác (xem/thêm/xóa/đổi role thành viên) đều được kiểm tra lại membership
-  ở server (`hasMember`) trước khi cho phép.
+  - **CTV** = tài khoản domain còn lại, nhưng phải được cấp quyền qua
+    `CTV_ACCESS_GROUP_EMAIL` hoặc `APP_CTV_EMAILS`. Chỉ thấy trang "Nhóm của tôi".
+- **Cấp quyền CTV nhanh = thêm CTV vào Google Group cấp quyền.** App kiểm tra
+  membership của nhóm `CTV_ACCESS_GROUP_EMAIL` khi đăng nhập và khi gọi API.
+- **Quyền thao tác nhóm học thử:** CTV chỉ được xem/thêm thành viên `MEMBER`
+  trong nhóm `CTV_TRIAL_GROUP_EMAIL`. Admin vẫn có toàn quyền mọi nhóm.
 
-> CTV có **full quyền** quản lý thành viên trên nhóm họ thuộc về (theo yêu cầu:
-> nhóm học thử tách biệt nên yên tâm). Để rút quyền một CTV với một nhóm, chỉ cần
-> xóa họ khỏi nhóm đó.
+> Để rút quyền một CTV, chỉ cần xóa họ khỏi nhóm `CTV_ACCESS_GROUP_EMAIL`.
+> Nếu đang dùng `APP_CTV_EMAILS` kiểu cũ thì cần xóa email khỏi biến môi trường.
 
 ## Bước 1 — Tạo OAuth Client ID
 
@@ -45,6 +45,8 @@ GOOGLE_OAUTH_CLIENT_ID=...apps.googleusercontent.com
 GOOGLE_OAUTH_CLIENT_SECRET=...
 APP_SESSION_SECRET=<chuỗi ngẫu nhiên 32 byte hex>   # đã tạo sẵn cho máy này
 # APP_ADMIN_EMAILS=admin2@dautruonghoctap.io.vn      # tùy chọn
+CTV_ACCESS_GROUP_EMAIL=ctv@dautruonghoctap.io.vn
+CTV_TRIAL_GROUP_EMAIL=2k9-hoc-thu@dautruonghoctap.io.vn
 ```
 
 Tạo session secret mới (nếu cần):
@@ -57,11 +59,10 @@ node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
 
 1. Admin (anh) tạo tài khoản `@dautruonghoctap.io.vn` cho CTV trong Google
    Workspace Admin.
-2. Trong app (đăng nhập bằng tài khoản admin) → trang **Nhóm** → một nhóm →
-   **Quản lý thành viên** → thêm email CTV vào nhóm.
-   - Hoặc dùng Google Groups trực tiếp / script bulk có sẵn.
-3. CTV vào web, bấm **Đăng nhập với Google**, chọn tài khoản nội bộ → chỉ thấy
-   đúng các nhóm đã được thêm.
+2. Thêm email CTV vào Google Group đã khai báo ở `CTV_ACCESS_GROUP_EMAIL`
+   (ví dụ `ctv@dautruonghoctap.io.vn`).
+3. CTV vào web, bấm **Đăng nhập với Google**, chọn tài khoản nội bộ → thấy trang
+   CTV và chỉ thao tác được nhóm học thử `CTV_TRIAL_GROUP_EMAIL`.
 
 ## Kiểm thử nhanh
 
@@ -71,8 +72,8 @@ npm run dev
 
 - Mở `http://localhost:3000` → màn đăng nhập.
 - Đăng nhập tài khoản admin → thấy đầy đủ Dashboard/Giao dịch/...
-- Đăng nhập tài khoản CTV (đã thêm vào 1 nhóm) → chỉ thấy "Nhóm của tôi" với
-  đúng nhóm đó; thử thêm/xóa thành viên hoạt động; gọi nhóm khác qua API sẽ bị
+- Đăng nhập tài khoản CTV đã nằm trong `CTV_ACCESS_GROUP_EMAIL` → chỉ thấy quyền
+  CTV; thử thêm học viên vào nhóm học thử hoạt động; gọi nhóm khác qua API sẽ bị
   chặn 403.
 - Đăng xuất bằng nút ở góc trên (hoặc thẻ user ở sidebar).
 ```
