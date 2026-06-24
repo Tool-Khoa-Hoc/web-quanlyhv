@@ -27,6 +27,10 @@ export async function DELETE(
     });
     return NextResponse.json({ ok: true });
   } catch (error) {
+    const code = (error as { code?: number }).code;
+    if (code === 404) {
+      return NextResponse.json({ ok: true, missing: true });
+    }
     const { status, message } = describeApiError(error);
     return NextResponse.json({ error: message }, { status });
   }

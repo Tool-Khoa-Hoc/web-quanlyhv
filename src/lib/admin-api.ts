@@ -69,12 +69,16 @@ export async function apiAddMember(
   return data.member;
 }
 
-export async function apiRemoveMember(groupEmail: string, memberEmail: string): Promise<void> {
+export async function apiRemoveMember(
+  groupEmail: string,
+  memberEmail: string,
+): Promise<{ missing: boolean }> {
   const res = await fetch(
     `/api/admin/groups/${encodeURIComponent(groupEmail)}/members/${encodeURIComponent(memberEmail)}`,
     { method: "DELETE" },
   );
-  await jsonOrThrow<{ ok: boolean }>(res);
+  const data = await jsonOrThrow<{ ok: boolean; missing?: boolean }>(res);
+  return { missing: Boolean(data.missing) };
 }
 
 export async function apiUpdateRole(

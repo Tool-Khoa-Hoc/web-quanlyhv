@@ -393,6 +393,12 @@ button {
   color: var(--muted);
 }
 
+.mini-button.danger {
+  background: var(--red-soft);
+  border-color: #fecaca;
+  color: #b91c1c;
+}
+
 .alert-strip {
   display: flex;
   align-items: center;
@@ -1139,18 +1145,44 @@ button {
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
+  min-width: 0;
 }
 
 .tag {
   display: inline-flex;
   align-items: center;
+  gap: 6px;
   min-height: 26px;
+  max-width: 100%;
   border-radius: 7px;
   padding: 0 8px;
   background: #f1f5f9;
   color: #334155;
   font-size: 12px;
   font-weight: 700;
+  overflow-wrap: anywhere;
+  white-space: normal;
+}
+
+.student-course-tag > span {
+  min-width: 0;
+}
+
+.tag-action {
+  display: inline-grid;
+  place-items: center;
+  flex: 0 0 auto;
+  width: 20px;
+  height: 20px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: #64748b;
+}
+
+.tag-action:hover {
+  background: var(--red-soft);
+  color: #b91c1c;
 }
 
 .group-card {

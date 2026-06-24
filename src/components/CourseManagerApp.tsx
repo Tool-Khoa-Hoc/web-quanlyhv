@@ -25,6 +25,7 @@ import {
   Settings,
   ShieldCheck,
   SlidersHorizontal,
+  Trash2,
   UserPlus,
   Users,
   WalletCards,
@@ -809,6 +810,91 @@ export function CourseManagerApp({ session }: { session: ClientSession }) {
     runGroupJob(job);
   }
 
+  async function cancelEnrollment(enrollmentId: string) {
+    if (!isAdmin) return;
+    const enrollment = state.enrollments.find((item) => item.id === enrollmentId);
+    if (!enrollment) return;
+    const student = model.studentMap.get(enrollment.studentId);
+    const group = model.groupMap.get(enrollment.groupId);
+    const gmail = student?.gmail.trim().toLowerCase();
+
+    if (!gmail || !group?.groupEmail) {
+      setAdminNotice("Không thể hủy đăng ký vì thiếu Gmail học viên hoặc Google Group.");
+      return;
+    }
+
+    const confirmed = window.confirm(
+      `Hủy đăng ký ${gmail} khỏi ${group.name}? Học viên sẽ được xóa khỏi Google Group tương ứng.`,
+    );
+    if (!confirmed) return;
+
+    const job = createJob("remove_member", group.id, gmail);
+    setState((current) => ({ ...current, jobs: [{ ...job, status: "running" }, ...current.jobs] }));
+
+    try {
+      const removal = await apiRemoveMember(group.groupEmail, gmail);
+      let trialStatusSynced = true;
+      if (enrollment.type === "trial") {
+        try {
+          await apiUpdateTrialStatus(group.groupEmail, gmail, "khong_dang_ky");
+          await loadTrialRecords();
+        } catch {
+          trialStatusSynced = false;
+        }
+      }
+
+      setState((current) => {
+        const shouldDecrementCount = !removal.missing;
+        const hasOtherEnrollments = current.enrollments.some(
+          (item) => item.id !== enrollmentId && item.studentId === enrollment.studentId,
+        );
+
+        return {
+          ...current,
+          students: hasOtherEnrollments
+            ? current.students
+            : current.students.filter((item) => item.id !== enrollment.studentId),
+          enrollments: current.enrollments.filter((item) => item.id !== enrollmentId),
+          groupMembers: current.groupMembers.filter(
+            (member) => !(member.groupId === enrollment.groupId && member.email === gmail),
+          ),
+          groups: current.groups.map((item) =>
+            item.id === enrollment.groupId && typeof item.directMembersCount === "number"
+              ? {
+                  ...item,
+                  directMembersCount: shouldDecrementCount
+                    ? Math.max(0, item.directMembersCount - 1)
+                    : item.directMembersCount,
+                }
+              : item,
+          ),
+          jobs: current.jobs.map((item) =>
+            item.id === job.id
+              ? { ...item, status: "done", finishedAt: new Date().toISOString(), error: undefined }
+              : item,
+          ),
+        };
+      });
+
+      setAdminNotice(
+        trialStatusSynced
+          ? `Đã hủy đăng ký và xóa ${gmail} khỏi ${group.name}.`
+          : `Đã hủy đăng ký và xóa ${gmail} khỏi Google Group. Chưa cập nhật được trạng thái học thử đồng bộ.`,
+      );
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      setState((current) => ({
+        ...current,
+        jobs: current.jobs.map((item) =>
+          item.id === job.id
+            ? { ...item, status: "failed", error: message, finishedAt: new Date().toISOString() }
+            : item,
+        ),
+      }));
+      setAdminNotice(`Không hủy được đăng ký của ${gmail}: ${message}`);
+    }
+  }
+
   function retryJob(jobId: string) {
     const job = state.jobs.find((item) => item.id === jobId);
     if (!job) return;
@@ -1057,13 +1143,18 @@ export function CourseManagerApp({ session }: { session: ClientSession }) {
     const job = createJob("remove_member", member.groupId, member.email);
     setState((current) => ({ ...current, jobs: [{ ...job, status: "running" }, ...current.jobs] }));
     try {
-      await apiRemoveMember(group.groupEmail, member.email);
+      const removal = await apiRemoveMember(group.groupEmail, member.email);
       setState((current) => ({
         ...current,
         groupMembers: current.groupMembers.filter((item) => item.id !== memberId),
         groups: current.groups.map((g) =>
           g.id === member.groupId
-            ? { ...g, directMembersCount: Math.max(0, (g.directMembersCount ?? 1) - 1) }
+            ? {
+                ...g,
+                directMembersCount: removal.missing
+                  ? g.directMembersCount
+                  : Math.max(0, (g.directMembersCount ?? 1) - 1),
+              }
             : g,
         ),
         jobs: current.jobs.map((j) =>
@@ -1260,6 +1351,7 @@ export function CourseManagerApp({ session }: { session: ClientSession }) {
               onEnqueueJob={enqueueGroupJob}
               onChangeCtv={changeEnrollmentCtv}
               onEditTransaction={setEditingPaidId}
+              onCancelEnrollment={cancelEnrollment}
               domainMembers={domainMembers}
             />
           ) : null}
@@ -1276,6 +1368,7 @@ export function CourseManagerApp({ session }: { session: ClientSession }) {
               onUpdateResult={updateTrialResult}
               onConvertTrial={convertTrial}
               onUpdateServerStatus={updateServerTrialStatus}
+              onCancelEnrollment={cancelEnrollment}
             />
           ) : null}
 
@@ -1290,7 +1383,9 @@ export function CourseManagerApp({ session }: { session: ClientSession }) {
             />
           ) : null}
 
-          {activeView === "students" ? <StudentsView state={state} /> : null}
+          {activeView === "students" ? (
+            <StudentsView state={state} onCancelEnrollment={cancelEnrollment} />
+          ) : null}
           {activeView === "groups" ? (
             <GroupsView
               state={state}
@@ -1502,6 +1597,7 @@ function TransactionsView({
   onEnqueueJob,
   onChangeCtv,
   onEditTransaction,
+  onCancelEnrollment,
   domainMembers,
 }: {
   state: AppState;
@@ -1515,6 +1611,7 @@ function TransactionsView({
   onTogglePayment: (id: string) => void;
   onEnqueueJob: (enrollment: Enrollment) => void;
   onEditTransaction: (id: string) => void;
+  onCancelEnrollment: (id: string) => void;
 }) {
   const cash = rows.reduce(
     (acc, item) => {
@@ -1581,6 +1678,7 @@ function TransactionsView({
                   onEnqueueJob={onEnqueueJob}
                   onChangeCtv={onChangeCtv}
                   onEditTransaction={onEditTransaction}
+                  onCancelEnrollment={onCancelEnrollment}
                   domainMembers={domainMembers}
                 />
               ))
@@ -1605,6 +1703,7 @@ function TrialsView({
   onUpdateResult,
   onConvertTrial,
   onUpdateServerStatus,
+  onCancelEnrollment,
 }: {
   state: AppState;
   rows: Enrollment[];
@@ -1616,6 +1715,7 @@ function TrialsView({
   onUpdateResult: (id: string, result: TrialResult) => void;
   onConvertTrial: (id: string) => void;
   onUpdateServerStatus: (groupEmail: string, email: string, status: TrialStatus) => void;
+  onCancelEnrollment: (id: string) => void;
 }) {
   const studentMap = byId(state.students);
   const ctvMap = byId(state.ctvs);
@@ -1746,6 +1846,15 @@ function TrialsView({
                     <td className="row-actions">
                       <button className="mini-button" type="button" onClick={() => onConvertTrial(item.id)}>
                         Chuyển trả phí
+                      </button>
+                      <button
+                        className="mini-button danger"
+                        type="button"
+                        onClick={() => onCancelEnrollment(item.id)}
+                        title="Hủy đăng ký và xóa khỏi Google Group"
+                      >
+                        <Trash2 size={14} />
+                        Hủy
                       </button>
                     </td>
                   </tr>
@@ -1936,7 +2045,13 @@ function CtvView({
   );
 }
 
-function StudentsView({ state }: { state: AppState }) {
+function StudentsView({
+  state,
+  onCancelEnrollment,
+}: {
+  state: AppState;
+  onCancelEnrollment?: (id: string) => void;
+}) {
   const ctvMap = byId(state.ctvs);
   const groupMap = byId(state.groups);
   return (
@@ -1946,7 +2061,9 @@ function StudentsView({ state }: { state: AppState }) {
         <div className="student-list">
           {state.students.length ? (
             state.students.map((student) => {
-              const rows = state.enrollments.filter((item) => item.studentId === student.id);
+              const rows = state.enrollments
+                .filter((item) => item.studentId === student.id)
+                .sort((a, b) => b.date.localeCompare(a.date));
               return (
                 <article className="student-row" key={student.id}>
                   <div className="avatar">{student.name.slice(0, 1).toUpperCase()}</div>
@@ -1955,11 +2072,28 @@ function StudentsView({ state }: { state: AppState }) {
                     <span>{student.name}</span>
                   </div>
                   <div className="student-tags">
-                    {rows.slice(0, 3).map((item) => (
-                      <span className="tag" key={item.id}>
-                        {item.type === "trial" ? "Học thử" : groupMap.get(item.groupId)?.name}
-                      </span>
-                    ))}
+                    {rows.map((item) => {
+                      const label =
+                        item.type === "trial"
+                          ? item.courseType || groupMap.get(item.groupId)?.name || "Học thử"
+                          : groupMap.get(item.groupId)?.name || item.courseType;
+                      return (
+                        <span className="tag student-course-tag" key={item.id} title={label}>
+                          <span>{label}</span>
+                          {onCancelEnrollment ? (
+                            <button
+                              aria-label={`Hủy đăng ký ${label}`}
+                              className="tag-action"
+                              onClick={() => onCancelEnrollment(item.id)}
+                              title="Hủy đăng ký và xóa khỏi Google Group"
+                              type="button"
+                            >
+                              <Trash2 size={13} />
+                            </button>
+                          ) : null}
+                        </span>
+                      );
+                    })}
                   </div>
                   <div className="student-side">
                     <span>{rows.length} đăng ký</span>
@@ -2639,6 +2773,7 @@ function TransactionRow({
   onEnqueueJob,
   onChangeCtv,
   onEditTransaction,
+  onCancelEnrollment,
   domainMembers = [],
 }: {
   enrollment: Enrollment;
@@ -2648,6 +2783,7 @@ function TransactionRow({
   onEnqueueJob?: (enrollment: Enrollment) => void;
   onChangeCtv?: (enrollmentId: string, ctvEmail: string) => void;
   onEditTransaction?: (id: string) => void;
+  onCancelEnrollment?: (id: string) => void;
   domainMembers?: DomainMember[];
 }) {
   const student = state.students.find((item) => item.id === enrollment.studentId);
@@ -2731,6 +2867,17 @@ function TransactionRow({
           <button className="mini-button" type="button" onClick={() => onEnqueueJob(enrollment)}>
             <Send size={14} />
             Queue
+          </button>
+        ) : null}
+        {onCancelEnrollment ? (
+          <button
+            className="mini-button danger"
+            type="button"
+            onClick={() => onCancelEnrollment(enrollment.id)}
+            title="Hủy đăng ký và xóa khỏi Google Group"
+          >
+            <Trash2 size={14} />
+            Hủy
           </button>
         ) : null}
       </td>
