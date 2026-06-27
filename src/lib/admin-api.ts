@@ -17,13 +17,14 @@ import type {
   Settings,
   Student,
 } from "./types";
+import { getErrorMessage } from "./error-message";
 
 // ===== Client gọi tới backend /api/admin/* =====
 
 async function jsonOrThrow<T>(res: Response): Promise<T> {
   const data = await res.json().catch(() => ({}));
   if (!res.ok) {
-    const message = (data as { error?: string }).error || `Lỗi ${res.status}`;
+    const message = getErrorMessage(data, `Lỗi ${res.status}`);
     throw new Error(message);
   }
   return data as T;

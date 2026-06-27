@@ -3,6 +3,7 @@ import "server-only";
 import { readFileSync } from "node:fs";
 import { google, type admin_directory_v1 } from "googleapis";
 import type { ApiAdminCredentialSource } from "./admin-types";
+import { getErrorMessage } from "./error-message";
 
 // Scopes tối thiểu để đọc nhóm + thêm/xóa/sửa thành viên.
 const SCOPES = [
@@ -209,9 +210,10 @@ export function describeApiError(error: unknown): { status: number; message: str
   if (error instanceof AdminConfigError) {
     return { status: 503, message: error.message };
   }
-  const err = error as { code?: number; errors?: Array<{ message?: string }>; message?: string };
+  const err = error as { code?: number; errors?: unknown[] };
   const status = typeof err.code === "number" ? err.code : 500;
   const message =
-    err.errors?.[0]?.message || err.message || "Lỗi không xác định khi gọi Admin SDK.";
+    err.errors?.map((item) => getErrorMessage(item, "")).find(Boolean) ||
+    getErrorMessage(error, "Lỗi không xác định khi gọi Admin SDK.");
   return { status, message };
 }

@@ -9,6 +9,7 @@ import {
   roleForEmail,
   signSession,
 } from "@/lib/auth";
+import { getErrorMessage } from "@/lib/error-message";
 
 export const dynamic = "force-dynamic";
 
@@ -81,7 +82,7 @@ export async function GET(request: Request) {
     res.cookies.delete(OAUTH_STATE_COOKIE);
     return res;
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Đăng nhập thất bại.";
+    const message = getErrorMessage(error, "Đăng nhập thất bại.");
     return errorRedirect(origin, message);
   }
 }

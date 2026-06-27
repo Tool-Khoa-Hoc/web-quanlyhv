@@ -72,6 +72,7 @@ import {
   saveLedger,
   type LedgerData,
 } from "@/lib/admin-api";
+import { getErrorMessage } from "@/lib/error-message";
 import type {
   ApiAdminStatus,
   ClientSession,
@@ -293,7 +294,7 @@ export function CourseManagerApp({ session }: { session: ClientSession }) {
         }
       } while (ledgerDirtyRef.current);
     } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
+      const message = getErrorMessage(error);
       setAdminNotice(`Không lưu được sổ cái dùng chung. Dữ liệu hiện chỉ lưu trên máy này. ${message}`);
     } finally {
       ledgerSavingRef.current = false;
@@ -350,7 +351,7 @@ export function CourseManagerApp({ session }: { session: ClientSession }) {
       setAdminStatus({ state: "ready", details });
       setAdminNotice("Admin SDK đã sẵn sàng.");
     } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
+      const message = getErrorMessage(error);
       setAdminStatus({ state: "error", message, checkedAt: new Date().toISOString() });
       setAdminNotice(`Admin SDK chưa sẵn sàng: ${message}`);
     }
@@ -501,7 +502,7 @@ export function CourseManagerApp({ session }: { session: ClientSession }) {
         })),
       )
       .catch((error: unknown) => {
-        const message = error instanceof Error ? error.message : String(error);
+        const message = getErrorMessage(error);
         setState((current) => ({
           ...current,
           jobs: current.jobs.map((j) =>
@@ -654,9 +655,31 @@ export function CourseManagerApp({ session }: { session: ClientSession }) {
   }
 
   function updatePaidEnrollment(form: EditPaidFormState) {
+    const target = state.enrollments.find((item) => item.id === form.id && item.type === "paid");
+    if (!target) return;
+
+    const previousStudent = state.students.find((item) => item.id === target.studentId);
+    const previousEmail = previousStudent?.gmail.trim().toLowerCase() ?? "";
+    const nextEmail = form.gmail.trim().toLowerCase();
+    if (!nextEmail) {
+      setAdminNotice("Gmail học viên không được để trống.");
+      return;
+    }
+
+    const previousGroupId = target.groupId;
+    const nextGroupId = form.groupId || target.groupId;
+    const previousGroup = state.groups.find((item) => item.id === previousGroupId);
+    const nextGroup = state.groups.find((item) => item.id === nextGroupId);
+    const shouldSyncMember =
+      Boolean(nextGroupId) && (previousEmail !== nextEmail || previousGroupId !== nextGroupId);
+    const removeMemberJob =
+      shouldSyncMember && previousEmail ? createJob("remove_member", previousGroupId, previousEmail) : null;
+    const addMemberJob = shouldSyncMember ? createJob("add_member", nextGroupId, nextEmail) : null;
+    const newJobs = [addMemberJob, removeMemberJob].filter((job): job is GroupJob => Boolean(job));
+
     setState((current) => {
-      const target = current.enrollments.find((item) => item.id === form.id && item.type === "paid");
-      if (!target) return current;
+      const currentTarget = current.enrollments.find((item) => item.id === form.id && item.type === "paid");
+      if (!currentTarget) return current;
 
       const resolved = resolveCtv(current, { email: form.ctvEmail, name: form.ctvName });
       const ctv = resolved.ctv;
@@ -665,39 +688,86 @@ export function CourseManagerApp({ session }: { session: ClientSession }) {
       const rateNumber = Number(form.commissionRate);
       const commissionRate = Number.isFinite(rateNumber)
         ? Math.min(1, Math.max(0, rateNumber / 100))
-        : target.commissionRateSnapshot;
+        : currentTarget.commissionRateSnapshot;
       const paymentReceivedDate =
         form.paymentStatus === "received"
-          ? form.paymentReceivedDate || target.paymentReceivedDate || todayISO()
+          ? form.paymentReceivedDate || currentTarget.paymentReceivedDate || todayISO()
           : undefined;
+      const previousStudentId = currentTarget.studentId;
+      const nextGroupId = form.groupId || currentTarget.groupId;
+      const nextEnrollments = withStudent.state.enrollments.map((item) =>
+        item.id === form.id
+          ? {
+              ...item,
+              date: form.date || item.date,
+              ctvId: ctv.id,
+              studentId: withStudent.studentId,
+              groupId: nextGroupId,
+              courseType: form.courseType.trim() || item.courseType,
+              tuition,
+              commissionRateSnapshot: commissionRate,
+              ownerShare: ownerShare(tuition, commissionRate),
+              paymentStatus: form.paymentStatus,
+              paymentReceivedDate,
+              note: form.note,
+            }
+          : item,
+      );
+      const hasOtherEnrollmentsForPreviousStudent = nextEnrollments.some(
+        (item) => item.studentId === previousStudentId,
+      );
+      let nextStudents = withStudent.state.students.map((student) =>
+        student.id === withStudent.studentId
+          ? { ...student, name: form.studentName.trim() || student.name }
+          : student,
+      );
+      if (previousStudentId !== withStudent.studentId && !hasOtherEnrollmentsForPreviousStudent) {
+        nextStudents = nextStudents.filter((student) => student.id !== previousStudentId);
+      }
+
+      let nextGroupMembers = withStudent.state.groupMembers;
+      if (removeMemberJob) {
+        nextGroupMembers = nextGroupMembers.filter(
+          (member) =>
+            !(member.groupId === removeMemberJob.groupId && member.email === removeMemberJob.studentGmail),
+        );
+      }
+      if (
+        addMemberJob &&
+        !nextGroupMembers.some(
+          (member) => member.groupId === addMemberJob.groupId && member.email === addMemberJob.studentGmail,
+        )
+      ) {
+        nextGroupMembers = [
+          ...nextGroupMembers,
+          {
+            id: `mem-${addMemberJob.groupId}-${nextEmail}`,
+            groupId: nextGroupId,
+            email: nextEmail,
+            name: form.studentName.trim() || undefined,
+            role: "member",
+            joinDate: todayISO(),
+          },
+        ];
+      }
 
       return {
         ...withStudent.state,
-        students: withStudent.state.students.map((student) =>
-          student.id === withStudent.studentId
-            ? { ...student, name: form.studentName.trim() || student.name }
-            : student,
-        ),
-        enrollments: withStudent.state.enrollments.map((item) =>
-          item.id === form.id
-            ? {
-                ...item,
-                date: form.date || item.date,
-                ctvId: ctv.id,
-                studentId: withStudent.studentId,
-                groupId: form.groupId || item.groupId,
-                courseType: form.courseType.trim() || item.courseType,
-                tuition,
-                commissionRateSnapshot: commissionRate,
-                ownerShare: ownerShare(tuition, commissionRate),
-                paymentStatus: form.paymentStatus,
-                paymentReceivedDate,
-                note: form.note,
-              }
-            : item,
-        ),
+        students: nextStudents,
+        groupMembers: nextGroupMembers,
+        enrollments: nextEnrollments,
+        jobs: [...newJobs, ...withStudent.state.jobs],
       };
     });
+    if (removeMemberJob && previousGroup?.groupEmail && previousEmail) {
+      settleMemberJob(removeMemberJob.id, apiRemoveMember(previousGroup.groupEmail, previousEmail));
+    }
+    if (addMemberJob && nextGroup?.groupEmail) {
+      settleMemberJob(addMemberJob.id, apiAddMember(nextGroup.groupEmail, nextEmail, "member"));
+    }
+    if (shouldSyncMember) {
+      setAdminNotice(`Đã cập nhật khóa: xóa ${previousEmail || "Gmail cũ"} và thêm ${nextEmail}.`);
+    }
     setEditingPaidId(null);
     setActiveView("transactions");
   }
@@ -743,7 +813,7 @@ export function CourseManagerApp({ session }: { session: ClientSession }) {
       await apiUpdateTrialStatus(groupEmail, email, status);
       await loadTrialRecords();
     } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
+      const message = getErrorMessage(error);
       setAdminNotice(`Không đổi được trạng thái học thử: ${message}`);
     }
   }
@@ -882,7 +952,7 @@ export function CourseManagerApp({ session }: { session: ClientSession }) {
           : `Đã hủy đăng ký và xóa ${gmail} khỏi Google Group. Chưa cập nhật được trạng thái học thử đồng bộ.`,
       );
     } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
+      const message = getErrorMessage(error);
       setState((current) => ({
         ...current,
         jobs: current.jobs.map((item) =>
@@ -1017,7 +1087,7 @@ export function CourseManagerApp({ session }: { session: ClientSession }) {
       );
       setAdminNotice(`Đã tải ${groups.length} nhóm từ Google.`);
     } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
+      const message = getErrorMessage(error);
       setAdminStatus({ state: "error", message, checkedAt: new Date().toISOString() });
       setAdminNotice(`Đồng bộ thất bại: ${message}`);
     }
@@ -1045,7 +1115,7 @@ export function CourseManagerApp({ session }: { session: ClientSession }) {
         ),
       }));
     } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
+      const message = getErrorMessage(error);
       setAdminNotice(`Không tải được thành viên: ${message}`);
     }
   }
@@ -1119,7 +1189,7 @@ export function CourseManagerApp({ session }: { session: ClientSession }) {
         };
       });
     } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
+      const message = getErrorMessage(error);
       setState((current) => ({
         ...current,
         jobs: current.jobs.map((j) =>
@@ -1162,7 +1232,7 @@ export function CourseManagerApp({ session }: { session: ClientSession }) {
         ),
       }));
     } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
+      const message = getErrorMessage(error);
       setState((current) => ({
         ...current,
         jobs: current.jobs.map((j) =>
@@ -1192,7 +1262,7 @@ export function CourseManagerApp({ session }: { session: ClientSession }) {
         ),
       }));
     } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
+      const message = getErrorMessage(error);
       setState((current) => ({
         ...current,
         jobs: current.jobs.map((j) =>
