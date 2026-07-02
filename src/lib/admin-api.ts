@@ -2,6 +2,7 @@ import type {
   ApiAdminStatus,
   ApiGroup,
   ApiGroupRole,
+  ApiLockStudentResult,
   ApiMember,
   DomainMember,
   TrialRecord,
@@ -97,6 +98,15 @@ export async function apiUpdateRole(
   );
   const data = await jsonOrThrow<{ member: ApiMember }>(res);
   return data.member;
+}
+
+/** Thu hồi quyền truy cập của học viên khỏi mọi Google Group có local-part bắt đầu bằng `sv-`. */
+export async function apiLockStudentAccess(studentEmail: string): Promise<ApiLockStudentResult> {
+  const res = await fetch(
+    `/api/admin/students/${encodeURIComponent(studentEmail)}/lock`,
+    { method: "POST" },
+  );
+  return jsonOrThrow<ApiLockStudentResult>(res);
 }
 
 // ===== Kho học thử dùng chung (Google Sheet qua /api/trials) =====

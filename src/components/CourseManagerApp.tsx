@@ -13,6 +13,7 @@ import {
   LayoutDashboard,
   Link2,
   ListChecks,
+  LockKeyhole,
   LogOut,
   LucideIcon,
   Pencil,
@@ -59,6 +60,7 @@ import {
   apiAddMember,
   apiAddTrial,
   apiGroupToCourseGroup,
+  apiLockStudentAccess,
   apiRemoveMember,
   apiUpdateRole,
   apiUpdateTrialStatus,
@@ -79,6 +81,7 @@ import type {
   DomainMember,
   TrialRecord,
   TrialStatus,
+  ApiLockStudentResult,
 } from "@/lib/admin-types";
 import type {
   AppState,
@@ -108,10 +111,18 @@ const navItems: Array<{ key: ViewKey; label: string; icon: LucideIcon }> = [
   { key: "ctv", label: "CTV", icon: Users },
   { key: "students", label: "Học viên", icon: GraduationCap },
   { key: "groups", label: "Nhóm", icon: Layers },
+  { key: "student-groups", label: "Khóa sinh viên", icon: GraduationCap },
   { key: "jobs", label: "Jobs", icon: ListChecks },
   { key: "settings", label: "Cài đặt", icon: Settings },
 ];
-const mobileNavKeys: ViewKey[] = ["dashboard", "transactions", "trials", "groups", "jobs"];
+const mobileNavKeys: ViewKey[] = [
+  "dashboard",
+  "transactions",
+  "trials",
+  "groups",
+  "student-groups",
+  "jobs",
+];
 const mobileNavItems = mobileNavKeys
   .map((key) => navItems.find((item) => item.key === key))
   .filter((item): item is (typeof navItems)[number] => Boolean(item));
@@ -157,6 +168,13 @@ interface GroupFormState {
   kind: CourseGroup["kind"];
   priceHint: string;
 }
+
+function isStudentGroup(group: Pick<CourseGroup, "groupEmail">) {
+  const localPart = group.groupEmail.trim().toLowerCase().split("@", 1)[0] ?? "";
+  return localPart.startsWith("sv-");
+}
+
+type CourseTrack = "thpt" | "student";
 
 interface CtvFormState {
   code: string;
@@ -965,6 +983,64 @@ export function CourseManagerApp({ session }: { session: ClientSession }) {
     }
   }
 
+  async function lockStudentAccess(studentId: string): Promise<ApiLockStudentResult | undefined> {
+    if (!isAdmin) return undefined;
+    const student = state.students.find((item) => item.id === studentId);
+    if (!student) return undefined;
+
+    const enrolledGroupIds = new Set(
+      state.enrollments
+        .filter((item) => item.studentId === studentId)
+        .map((item) => item.groupId),
+    );
+    const knownGroups = state.groups.filter((group) => {
+      const localPart = group.groupEmail.trim().toLowerCase().split("@", 1)[0] ?? "";
+      return enrolledGroupIds.has(group.id) && localPart.startsWith("sv-");
+    });
+    const knownGroupText = knownGroups.length
+      ? `\n\nNhóm đang ghi nhận:\n${knownGroups.map((group) => `• ${group.name}`).join("\n")}`
+      : "";
+    const confirmed = window.confirm(
+      `Khóa truy cập của ${student.gmail}? Tài khoản sẽ bị xóa khỏi tất cả Google Group có tiền tố sv-.${knownGroupText}`,
+    );
+    if (!confirmed) return undefined;
+
+    setAdminNotice(`Đang khóa truy cập của ${student.gmail}…`);
+    try {
+      const result = await apiLockStudentAccess(student.gmail);
+      const removedEmails = new Set(result.removedGroups.map((group) => group.email));
+      setState((current) => ({
+        ...current,
+        groupMembers: current.groupMembers.filter((member) => {
+          if (member.email.trim().toLowerCase() !== student.gmail.trim().toLowerCase()) return true;
+          const group = current.groups.find((item) => item.id === member.groupId);
+          return !group || !removedEmails.has(group.groupEmail.trim().toLowerCase());
+        }),
+        groups: current.groups.map((group) =>
+          removedEmails.has(group.groupEmail.trim().toLowerCase()) &&
+          typeof group.directMembersCount === "number"
+            ? { ...group, directMembersCount: Math.max(0, group.directMembersCount - 1) }
+            : group,
+        ),
+      }));
+
+      const removedNames = result.removedGroups.map((group) => group.name).join(", ");
+      const failureSuffix = result.failedGroups.length
+        ? ` Không thu hồi được ${result.failedGroups.length} nhóm.`
+        : "";
+      setAdminNotice(
+        result.removedGroups.length
+          ? `Đã khóa ${student.gmail}: gỡ khỏi ${result.removedGroups.length} nhóm${removedNames ? ` (${removedNames})` : ""}.${failureSuffix}`
+          : `Không có membership trực tiếp nào của ${student.gmail} trong group tiền tố sv-.${failureSuffix}`,
+      );
+      return result;
+    } catch (error) {
+      const message = getErrorMessage(error);
+      setAdminNotice(`Không khóa được ${student.gmail}: ${message}`);
+      throw error;
+    }
+  }
+
   function retryJob(jobId: string) {
     const job = state.jobs.find((item) => item.id === jobId);
     if (!job) return;
@@ -1454,12 +1530,32 @@ export function CourseManagerApp({ session }: { session: ClientSession }) {
           ) : null}
 
           {activeView === "students" ? (
-            <StudentsView state={state} onCancelEnrollment={cancelEnrollment} />
+            <StudentsView
+              state={state}
+              onCancelEnrollment={cancelEnrollment}
+              onLockStudent={lockStudentAccess}
+            />
           ) : null}
           {activeView === "groups" ? (
             <GroupsView
               state={state}
               isAdmin={isAdmin}
+              studentGroupsOnly={false}
+              trialRecords={trialRecords}
+              onAddGroup={addGroup}
+              onDeleteGroup={deleteGroup}
+              onSyncFromGoogle={syncFromGoogle}
+              onOpenGroup={loadGroupMembers}
+              onAddMember={addGroupMember}
+              onRemoveMember={removeGroupMember}
+              onUpdateRole={updateMemberRole}
+            />
+          ) : null}
+          {activeView === "student-groups" ? (
+            <GroupsView
+              state={state}
+              isAdmin={isAdmin}
+              studentGroupsOnly
               trialRecords={trialRecords}
               onAddGroup={addGroup}
               onDeleteGroup={deleteGroup}
@@ -2118,12 +2214,27 @@ function CtvView({
 function StudentsView({
   state,
   onCancelEnrollment,
+  onLockStudent,
 }: {
   state: AppState;
   onCancelEnrollment?: (id: string) => void;
+  onLockStudent?: (studentId: string) => Promise<ApiLockStudentResult | undefined>;
 }) {
   const ctvMap = byId(state.ctvs);
   const groupMap = byId(state.groups);
+  const [lockingStudentId, setLockingStudentId] = useState<string | null>(null);
+
+  async function lockStudent(studentId: string) {
+    if (!onLockStudent || lockingStudentId) return;
+    setLockingStudentId(studentId);
+    try {
+      await onLockStudent(studentId);
+    } catch {
+      // Thông báo lỗi được hiển thị ở admin notice chung.
+    } finally {
+      setLockingStudentId(null);
+    }
+  }
   return (
     <>
       <PageTitle title="Học viên" subtitle="Hồ sơ theo Gmail, lịch sử học thử/trả phí và nhóm đang liên quan." />
@@ -2168,6 +2279,18 @@ function StudentsView({
                   <div className="student-side">
                     <span>{rows.length} đăng ký</span>
                     <span>{ctvMap.get(rows[0]?.ctvId)?.name ?? "Chưa có CTV"}</span>
+                    {onLockStudent ? (
+                      <button
+                        className="mini-button danger student-lock-button"
+                        disabled={Boolean(lockingStudentId)}
+                        onClick={() => void lockStudent(student.id)}
+                        title="Gỡ học viên khỏi tất cả Google Group có tiền tố sv-"
+                        type="button"
+                      >
+                        <LockKeyhole size={14} />
+                        {lockingStudentId === student.id ? "Đang khóa…" : "Khóa truy cập"}
+                      </button>
+                    ) : null}
                   </div>
                 </article>
               );
@@ -2184,6 +2307,7 @@ function StudentsView({
 function GroupsView({
   state,
   isAdmin,
+  studentGroupsOnly,
   trialRecords,
   onAddGroup,
   onDeleteGroup,
@@ -2195,6 +2319,7 @@ function GroupsView({
 }: {
   state: AppState;
   isAdmin: boolean;
+  studentGroupsOnly: boolean;
   trialRecords: TrialRecord[];
   onAddGroup: (form: GroupFormState) => void;
   onDeleteGroup: (groupId: string) => void;
@@ -2212,16 +2337,30 @@ function GroupsView({
 }) {
   const [showAddGroup, setShowAddGroup] = useState(false);
   const [activeGroupId, setActiveGroupId] = useState<string | null>(null);
-  const groupMap = byId(state.groups);
   const activeGroup = activeGroupId ? state.groups.find((group) => group.id === activeGroupId) : null;
+  const visibleGroups = isAdmin
+    ? state.groups.filter((group) => isStudentGroup(group) === studentGroupsOnly)
+    : state.groups;
+  const visibleGroupIds = new Set(visibleGroups.map((group) => group.id));
+  const visibleJobs = state.jobs.filter((job) =>
+    job.groupId ? visibleGroupIds.has(job.groupId) : !studentGroupsOnly,
+  );
 
   return (
     <>
       <div className="page-heading">
         <div>
-          <h1>{isAdmin ? "Nhóm / Khóa học" : "Nhóm của tôi"}</h1>
+          <h1>
+            {studentGroupsOnly
+              ? "Khóa sinh viên"
+              : isAdmin
+                ? "Nhóm / Khóa học"
+                : "Nhóm của tôi"}
+          </h1>
           <p>
-            {isAdmin
+            {studentGroupsOnly
+              ? "Các nhóm sinh viên có email Google Group bắt đầu bằng tiền tố sv-."
+              : isAdmin
               ? "Gán môn, giáo viên và Google Group cho từng khóa."
               : "Các nhóm bạn được cấp quyền. Bạn có thể thêm/xóa/đổi vai trò thành viên."}
           </p>
@@ -2251,14 +2390,14 @@ function GroupsView({
           {isAdmin ? (
             <button className="button primary" type="button" onClick={() => setShowAddGroup(true)}>
               <Plus size={17} />
-              <span>Thêm nhóm</span>
+              <span>{studentGroupsOnly ? "Thêm khóa sinh viên" : "Thêm nhóm"}</span>
             </button>
           ) : null}
         </div>
       </div>
       <div className="group-grid">
-        {state.groups.length ? (
-          state.groups.map((group) => (
+        {visibleGroups.length ? (
+          visibleGroups.map((group) => (
             <section className="panel group-card" key={group.id}>
               <div className="group-icon">
                 <Link2 size={20} />
@@ -2314,7 +2453,9 @@ function GroupsView({
           <EmptyState
             label={
               isAdmin
-                ? "Chưa có nhóm nào. Bấm 'Đồng bộ từ Google' để nạp nhóm thật."
+                ? studentGroupsOnly
+                  ? "Chưa có khóa sinh viên nào. Các group có email bắt đầu bằng sv- sẽ xuất hiện tại đây."
+                  : "Chưa có nhóm nào. Bấm 'Đồng bộ từ Google' để nạp nhóm thật."
                 : "Bạn chưa được cấp quyền nhóm nào. Liên hệ quản trị viên để được thêm vào nhóm."
             }
           />
@@ -2322,10 +2463,10 @@ function GroupsView({
       </div>
       {isAdmin ? (
         <section className="panel">
-          <PanelHeader title="Tình trạng queue theo nhóm" action={`${state.jobs.length} jobs`} />
+          <PanelHeader title="Tình trạng queue theo nhóm" action={`${visibleJobs.length} jobs`} />
           <div className="stack-list">
-            {state.jobs.length ? (
-              state.jobs.slice(0, 6).map((job) => (
+            {visibleJobs.length ? (
+              visibleJobs.slice(0, 6).map((job) => (
                 <div className="queue-row" key={job.id}>
                   <div>
                     <strong>{jobGroupLabel(state, job, "Admin SDK")}</strong>
@@ -2343,6 +2484,7 @@ function GroupsView({
 
       {showAddGroup ? (
         <AddGroupModal
+          studentGroup={studentGroupsOnly}
           onClose={() => setShowAddGroup(false)}
           onSubmit={(form) => {
             onAddGroup(form);
@@ -2557,20 +2699,23 @@ function GroupMembersModal({
 }
 
 function AddGroupModal({
+  studentGroup,
   onClose,
   onSubmit,
 }: {
+  studentGroup: boolean;
   onClose: () => void;
   onSubmit: (form: GroupFormState) => void;
 }) {
   const [form, setForm] = useState<GroupFormState>({
     name: "",
-    groupEmail: "",
+    groupEmail: studentGroup ? "sv-" : "",
     subject: "",
     teacher: "",
     kind: "paid",
     priceHint: "0",
   });
+  const [error, setError] = useState("");
 
   return (
     <ModalShell title="Thêm Google Group" onClose={onClose}>
@@ -2578,6 +2723,10 @@ function AddGroupModal({
         className="form-grid"
         onSubmit={(event) => {
           event.preventDefault();
+          if (studentGroup && !isStudentGroup({ groupEmail: form.groupEmail })) {
+            setError("Email group khóa sinh viên phải bắt đầu bằng tiền tố sv-.");
+            return;
+          }
           onSubmit(form);
         }}
       >
@@ -2587,8 +2736,12 @@ function AddGroupModal({
           value={form.groupEmail}
           type="email"
           required
-          onChange={(groupEmail) => setForm({ ...form, groupEmail })}
+          onChange={(groupEmail) => {
+            setError("");
+            setForm({ ...form, groupEmail });
+          }}
         />
+        {error ? <p className="status-note danger">{error}</p> : null}
         <TextField label="Môn" value={form.subject} onChange={(subject) => setForm({ ...form, subject })} />
         <TextField label="Giáo viên" value={form.teacher} onChange={(teacher) => setForm({ ...form, teacher })} />
         <SelectField
@@ -3161,9 +3314,19 @@ function EnrollmentModal({
   const paidGroups = state.groups.filter((group) => group.kind !== "trial");
   // Học thử: CHỈ hiện nhóm học thử (không kèm combo/trả phí).
   const trialGroups = state.groups.filter((group) => group.kind === "trial");
-  const groupsForType = type === "paid" ? paidGroups : trialGroups;
-  const firstPaid = paidGroups[0] ?? state.groups[0];
-  const firstTrial = trialGroups[0] ?? state.groups.find((group) => group.kind === "trial");
+  const initialGroups = initialType === "paid" ? paidGroups : trialGroups;
+  const [courseTrack, setCourseTrack] = useState<CourseTrack>(() =>
+    initialGroups.length === 0 || initialGroups.some((group) => !isStudentGroup(group))
+      ? "thpt"
+      : "student",
+  );
+  const matchesCourseTrack = (group: CourseGroup, track: CourseTrack = courseTrack) =>
+    track === "student" ? isStudentGroup(group) : !isStudentGroup(group);
+  const groupsForType = (type === "paid" ? paidGroups : trialGroups).filter((group) =>
+    matchesCourseTrack(group),
+  );
+  const firstPaid = paidGroups.find((group) => matchesCourseTrack(group));
+  const firstTrial = trialGroups.find((group) => matchesCourseTrack(group));
   const firstGroup = type === "paid" ? firstPaid : firstTrial;
 
   // CTV chọn từ thành viên nội bộ trong domain; fallback về CTV cục bộ nếu chưa nạp được.
@@ -3199,6 +3362,19 @@ function EnrollmentModal({
       groupId: defaultGroup?.id ?? "",
       courseType: next === "paid" ? defaultGroup?.name ?? "" : "Học thử",
       tuition: String(defaultGroup?.priceHint ?? current.tuition),
+    }));
+  }
+
+  function switchCourseTrack(next: CourseTrack) {
+    if (next === courseTrack) return;
+    const sourceGroups = type === "paid" ? paidGroups : trialGroups;
+    const defaultGroup = sourceGroups.find((group) => matchesCourseTrack(group, next));
+    setCourseTrack(next);
+    setForm((current) => ({
+      ...current,
+      groupId: defaultGroup?.id ?? "",
+      courseType: type === "paid" ? defaultGroup?.name ?? "" : "Học thử",
+      tuition: type === "paid" ? String(defaultGroup?.priceHint ?? 0) : current.tuition,
     }));
   }
 
@@ -3250,6 +3426,26 @@ function EnrollmentModal({
   return (
     <ModalShell title="Thêm đăng ký" onClose={onClose}>
       <form className="form-grid" onSubmit={submit}>
+        <div className="enrollment-course-tabs" role="tablist" aria-label="Chọn khóa học">
+          <button
+            className={courseTrack === "thpt" ? "active" : ""}
+            type="button"
+            role="tab"
+            aria-selected={courseTrack === "thpt"}
+            onClick={() => switchCourseTrack("thpt")}
+          >
+            Khóa THPT
+          </button>
+          <button
+            className={courseTrack === "student" ? "active" : ""}
+            type="button"
+            role="tab"
+            aria-selected={courseTrack === "student"}
+            onClick={() => switchCourseTrack("student")}
+          >
+            Khóa sinh viên
+          </button>
+        </div>
         <div className="form-type-toggle">
           <Segmented
             value={type}

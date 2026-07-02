@@ -28,6 +28,19 @@ export interface ApiMember {
   type: string;
 }
 
+export interface ApiLockedGroup {
+  email: string;
+  name: string;
+}
+
+export interface ApiLockStudentResult {
+  studentEmail: string;
+  matchedGroups: ApiLockedGroup[];
+  removedGroups: ApiLockedGroup[];
+  skippedGroups: ApiLockedGroup[];
+  failedGroups: Array<ApiLockedGroup & { error: string }>;
+}
+
 export type ApiAdminCredentialSource =
   | "GOOGLE_ADMIN_SA_KEY"
   | "GOOGLE_ADMIN_SA_KEY_BASE64"

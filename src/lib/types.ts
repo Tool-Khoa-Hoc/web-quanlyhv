@@ -5,6 +5,7 @@ export type ViewKey =
   | "ctv"
   | "students"
   | "groups"
+  | "student-groups"
   | "jobs"
   | "settings";
 
