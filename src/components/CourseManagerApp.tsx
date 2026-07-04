@@ -34,7 +34,7 @@ import {
   X,
 } from "lucide-react";
 import Image from "next/image";
-import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { FormEvent, MouseEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import {
   byId,
@@ -4315,39 +4315,94 @@ function InlineStat({ label, value, strong = false }: { label: string; value: st
 }
 
 function TrendChart({ data }: { data: Array<{ date: string; revenue: number; share: number }> }) {
+  const [active, setActive] = useState<number | null>(null);
+
   if (!data.length) {
     return <EmptyState label="Chưa có doanh thu." />;
   }
 
+  const padX = 1.5;
+  const spanX = 100 - padX * 2;
+  const topY = 12;
+  const baseY = 92;
   const max = Math.max(...data.map((item) => item.revenue), 1);
-  const points = data
-    .map((item, index) => {
-      const x = data.length === 1 ? 50 : 6 + (index / (data.length - 1)) * 88;
-      const y = 86 - (item.revenue / max) * 62;
-      return `${x},${y}`;
-    })
-    .join(" ");
+  const xAt = (index: number) => (data.length === 1 ? 50 : padX + (index / (data.length - 1)) * spanX);
+  const yAt = (revenue: number) => baseY - (revenue / max) * (baseY - topY);
+
+  const line = data.map((item, index) => `${xAt(index)},${yAt(item.revenue)}`).join(" ");
+  const area = `M${xAt(0)},${baseY} L${line} L${xAt(data.length - 1)},${baseY} Z`;
+  const showDots = data.length <= 31;
+
+  // Compact summary shown instead of a per-day card grid (which gets cluttered over 90+ days).
+  const totalShare = data.reduce((sum, item) => sum + item.share, 0);
+  const avgShare = Math.round(totalShare / data.length);
+  const bestIndex = data.reduce((best, item, index) => (item.share > data[best].share ? index : best), 0);
+
+  // Sample a few x-axis labels so the timeline stays readable with many points.
+  const labelIndexes = Array.from(
+    new Set([0, Math.floor((data.length - 1) / 2), data.length - 1].filter((i) => i >= 0)),
+  );
+
+  const activeItem = active != null ? data[active] : null;
+
+  const onMove = (event: MouseEvent<HTMLDivElement>) => {
+    if (data.length === 1) return setActive(0);
+    const rect = event.currentTarget.getBoundingClientRect();
+    const ratio = Math.min(1, Math.max(0, (event.clientX - rect.left) / rect.width));
+    setActive(Math.round(ratio * (data.length - 1)));
+  };
 
   return (
     <div className="trend-chart">
-      <svg viewBox="0 0 100 100" role="img" aria-label="Biểu đồ doanh thu">
-        <path d="M6 86 H94" className="chart-axis" />
-        <path d="M6 60 H94" className="chart-grid" />
-        <path d="M6 34 H94" className="chart-grid" />
-        <polyline points={points} className="chart-line" />
-        {data.map((item, index) => {
-          const x = data.length === 1 ? 50 : 6 + (index / (data.length - 1)) * 88;
-          const y = 86 - (item.revenue / max) * 62;
-          return <circle key={item.date} cx={x} cy={y} r="1.8" className="chart-dot" />;
-        })}
-      </svg>
-      <div className="chart-legend">
-        {data.map((item) => (
-          <div key={item.date}>
-            <span>{shortDate(item.date).slice(0, 5)}</span>
-            <strong>{currency(item.share)}</strong>
+      <div className="chart-plot" onMouseMove={onMove} onMouseLeave={() => setActive(null)}>
+        <svg viewBox="0 0 100 100" preserveAspectRatio="none" role="img" aria-label="Biểu đồ doanh thu">
+          <path d={`M0 ${(topY + baseY) / 2} H100`} className="chart-grid" />
+          <path d={`M0 ${baseY} H100`} className="chart-axis" />
+          <path d={area} className="chart-area" />
+          <polyline points={line} className="chart-line" />
+          {showDots
+            ? data.map((item, index) => (
+                <circle key={item.date} cx={xAt(index)} cy={yAt(item.revenue)} r="1.6" className="chart-dot" />
+              ))
+            : null}
+          {activeItem ? (
+            <>
+              <path d={`M${xAt(active as number)} ${topY} V${baseY}`} className="chart-guide" />
+              <circle cx={xAt(active as number)} cy={yAt(activeItem.revenue)} r="2.2" className="chart-dot active" />
+            </>
+          ) : null}
+        </svg>
+        {activeItem ? (
+          <div
+            className="chart-tooltip"
+            style={{ left: `${xAt(active as number)}%` }}
+            data-flip={xAt(active as number) > 65 ? "left" : xAt(active as number) < 35 ? "right" : "center"}
+          >
+            <span>{shortDate(activeItem.date)}</span>
+            <strong>{currency(activeItem.share)}</strong>
           </div>
-        ))}
+        ) : null}
+        <div className="chart-xlabels">
+          {labelIndexes.map((index) => (
+            <span key={index} style={{ left: `${xAt(index)}%` }}>
+              {shortDate(data[index].date).slice(0, 5)}
+            </span>
+          ))}
+        </div>
+      </div>
+      <div className="chart-summary">
+        <div>
+          <span>Tổng {data.length} ngày</span>
+          <strong>{currency(totalShare)}</strong>
+        </div>
+        <div>
+          <span>Trung bình/ngày</span>
+          <strong>{currency(avgShare)}</strong>
+        </div>
+        <div>
+          <span>Cao nhất · {shortDate(data[bestIndex].date).slice(0, 5)}</span>
+          <strong>{currency(data[bestIndex].share)}</strong>
+        </div>
       </div>
     </div>
   );
