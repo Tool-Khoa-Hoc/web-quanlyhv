@@ -56,10 +56,6 @@ export interface ApiAdminStatus {
   checkedAt: string;
 }
 
-export interface ApiError {
-  error: string;
-}
-
 // Thành viên nội bộ thuộc domain Workspace (dùng cho dropdown chọn CTV).
 export interface DomainMember {
   email: string;

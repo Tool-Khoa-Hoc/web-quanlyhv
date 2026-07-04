@@ -56,6 +56,7 @@ export async function PUT(request: Request) {
     !Array.isArray(payload.ctvs) ||
     !Array.isArray(payload.students) ||
     !Array.isArray(payload.enrollments) ||
+    !Array.isArray(payload.expenses) ||
     !Array.isArray(payload.jobs) ||
     !payload.settings
   ) {

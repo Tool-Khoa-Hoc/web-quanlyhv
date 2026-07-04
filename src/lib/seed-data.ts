@@ -19,6 +19,7 @@ export const seedState: AppState = {
   groups: [],
   groupMembers: [],
   enrollments: [],
+  expenses: [],
   jobs: [],
   settings: {
     defaultCommissionRate: 0.5,

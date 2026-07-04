@@ -133,40 +133,6 @@ export function getDirectory(): admin_directory_v1.Admin {
   return cachedClient;
 }
 
-/**
- * Liệt kê các nhóm mà một user (email) là thành viên trong domain.
- * Dùng cho cộng tác viên: chỉ thấy nhóm họ được cấp quyền (được thêm vào nhóm).
- */
-export async function listGroupsForUser(email: string) {
-  const directory = getDirectory();
-  const groups: Array<{
-    id: string;
-    email: string;
-    name: string;
-    description: string;
-    directMembersCount: number;
-  }> = [];
-  let pageToken: string | undefined;
-  do {
-    const res = await directory.groups.list({
-      userKey: email,
-      maxResults: 200,
-      pageToken,
-    });
-    for (const g of res.data.groups ?? []) {
-      groups.push({
-        id: g.id ?? "",
-        email: g.email ?? "",
-        name: g.name ?? g.email ?? "",
-        description: g.description ?? "",
-        directMembersCount: Number(g.directMembersCount ?? 0),
-      });
-    }
-    pageToken = res.data.nextPageToken ?? undefined;
-  } while (pageToken);
-  return groups;
-}
-
 /** Lấy thông tin một nhóm theo groupKey (email hoặc id). Dùng để CTV chỉ thấy nhóm học thử. */
 export async function getGroupByKey(groupKey: string) {
   const directory = getDirectory();
@@ -193,16 +159,6 @@ export async function userIsGroupMember(email: string, groupKey: string): Promis
     if (code === 404) return false;
     throw error;
   }
-}
-
-export function isConfigured(): boolean {
-  return Boolean(
-    (process.env.GOOGLE_ADMIN_SA_KEY?.trim() ||
-      process.env.GOOGLE_ADMIN_SA_KEY_BASE64?.trim() ||
-      process.env.GOOGLE_ADMIN_SA_KEY_FILE?.trim()) &&
-      process.env.GOOGLE_ADMIN_IMPERSONATE_EMAIL?.trim() &&
-      process.env.GOOGLE_WORKSPACE_DOMAIN?.trim(),
-  );
 }
 
 /** Chuẩn hóa lỗi từ googleapis thành { status, message } để trả về client. */

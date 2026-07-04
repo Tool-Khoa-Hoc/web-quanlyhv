@@ -12,8 +12,8 @@ import type {
   Ctv,
   CourseGroup,
   Enrollment,
+  Expense,
   GroupJob,
-  GroupMember,
   GroupRole,
   Settings,
   Student,
@@ -35,6 +35,21 @@ export async function fetchGroups(): Promise<ApiGroup[]> {
   const res = await fetch("/api/admin/groups", { cache: "no-store" });
   const data = await jsonOrThrow<{ groups: ApiGroup[] }>(res);
   return data.groups;
+}
+
+/** Tạo Google Group thật qua Admin SDK (chỉ admin). Trả về nhóm vừa tạo. */
+export async function apiCreateGroup(
+  email: string,
+  name?: string,
+  description?: string,
+): Promise<ApiGroup> {
+  const res = await fetch("/api/admin/groups", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ email, name, description }),
+  });
+  const data = await jsonOrThrow<{ group: ApiGroup }>(res);
+  return data.group;
 }
 
 export async function fetchAdminStatus(): Promise<ApiAdminStatus> {
@@ -157,6 +172,7 @@ export interface LedgerPayload {
   ctvs: Ctv[];
   students: Student[];
   enrollments: Enrollment[];
+  expenses: Expense[];
   jobs: GroupJob[];
   settings: Settings;
 }
@@ -231,15 +247,5 @@ export function apiGroupToCourseGroup(group: ApiGroup): CourseGroup {
     kind,
     priceHint: 0,
     directMembersCount: group.directMembersCount,
-  };
-}
-
-export function apiMemberToGroupMember(groupId: string, member: ApiMember): GroupMember {
-  return {
-    id: `mem-${groupId}-${member.email}`,
-    groupId,
-    email: member.email.toLowerCase(),
-    role: roleFromApi(member.role),
-    joinDate: "",
   };
 }

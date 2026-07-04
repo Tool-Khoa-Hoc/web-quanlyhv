@@ -27,6 +27,7 @@ import {
   ShieldCheck,
   SlidersHorizontal,
   Trash2,
+  TrendingUp,
   UserPlus,
   Users,
   WalletCards,
@@ -37,28 +38,38 @@ import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "re
 
 import {
   byId,
+  cashflowSeries,
   currency,
   ctvDisplay,
-  debtByCtv,
+  expenseCategoryLabel,
+  financeSummary,
   findOrCreateStudent,
   jobLabel,
   makeId,
   memberCount,
   membersByGroup,
-  metrics,
   ownerShare,
   paidEnrollments,
   shortDate,
   statusLabel,
   todayISO,
-  trendSeries,
-  trialEnrollments,
   trialLabel,
 } from "@/lib/calculations";
 import { seedState } from "@/lib/seed-data";
 import {
+  addDaysISO,
+  buildModelShape,
+  createJob,
+  jobGroupLabel,
+  LEGACY_STORAGE_KEYS,
+  matchesQuery,
+  normalizePersistedState,
+  STORAGE_KEY,
+} from "@/lib/app-model";
+import {
   apiAddMember,
   apiAddTrial,
+  apiCreateGroup,
   apiGroupToCourseGroup,
   apiLockStudentAccess,
   apiRemoveMember,
@@ -88,6 +99,8 @@ import type {
   CourseGroup,
   Ctv,
   Enrollment,
+  Expense,
+  ExpenseCategory,
   GroupJob,
   GroupRole,
   JobStatus,
@@ -96,8 +109,6 @@ import type {
   ViewKey,
 } from "@/lib/types";
 
-const STORAGE_KEY = "quan-ly-khoa-hoc-state-v2";
-const LEGACY_STORAGE_KEYS = ["quan-ly-khoa-hoc-state-v1"];
 
 type AdminSdkState =
   | { state: "checking" }
@@ -107,6 +118,7 @@ type AdminSdkState =
 const navItems: Array<{ key: ViewKey; label: string; icon: LucideIcon }> = [
   { key: "dashboard", label: "Dashboard", icon: LayoutDashboard },
   { key: "transactions", label: "Giao dịch", icon: ReceiptText },
+  { key: "cashflow", label: "Dòng tiền", icon: TrendingUp },
   { key: "trials", label: "Học thử", icon: FlaskConical },
   { key: "ctv", label: "CTV", icon: Users },
   { key: "students", label: "Học viên", icon: GraduationCap },
@@ -182,6 +194,22 @@ interface CtvFormState {
   email: string;
   commissionRate: string;
 }
+
+interface ExpenseInput {
+  date: string;
+  category: ExpenseCategory;
+  amount: number;
+  note?: string;
+}
+
+const expenseCategories: ExpenseCategory[] = [
+  "material",
+  "system",
+  "marketing",
+  "salary",
+  "office",
+  "other",
+];
 
 /**
  * Tìm CTV theo email (tài khoản domain). Chưa có thì tạo mới với hoa hồng mặc định 50%.
@@ -275,6 +303,7 @@ export function CourseManagerApp({ session }: { session: ClientSession }) {
       ctvs: ledger.ctvs,
       students: ledger.students,
       enrollments: ledger.enrollments,
+      expenses: ledger.expenses ?? current.expenses,
       jobs: ledger.jobs ?? current.jobs,
       settings: { ...current.settings, ...ledger.settings },
     }));
@@ -297,6 +326,7 @@ export function CourseManagerApp({ session }: { session: ClientSession }) {
             ctvs: current.ctvs,
             students: current.students,
             enrollments: current.enrollments,
+            expenses: current.expenses,
             jobs: current.jobs,
             settings: current.settings,
           },
@@ -439,6 +469,7 @@ export function CourseManagerApp({ session }: { session: ClientSession }) {
     state.ctvs,
     state.students,
     state.enrollments,
+    state.expenses,
     state.jobs,
     state.settings,
   ]);
@@ -466,27 +497,7 @@ export function CourseManagerApp({ session }: { session: ClientSession }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [hydrated, isAdmin]);
 
-  const model = useMemo(() => {
-    const ctvMap = byId(state.ctvs);
-    const studentMap = byId(state.students);
-    const groupMap = byId(state.groups);
-    const summary = metrics(state);
-    const ctvDebt = debtByCtv(state);
-    const paid = paidEnrollments(state);
-    const trials = trialEnrollments(state);
-    const trend = trendSeries(state);
-
-    return {
-      ctvMap,
-      studentMap,
-      groupMap,
-      summary,
-      ctvDebt,
-      paid,
-      trials,
-      trend,
-    };
-  }, [state]);
+  const model = useMemo(() => buildModelShape(state), [state]);
 
   const filteredPaid = useMemo(() => {
     return model.paid
@@ -1090,6 +1101,46 @@ export function CourseManagerApp({ session }: { session: ClientSession }) {
     }));
   }
 
+  function addExpense(input: ExpenseInput) {
+    const expense: Expense = {
+      ...input,
+      id: makeId("exp"),
+      amount: Math.max(0, Math.round(input.amount)),
+      note: input.note?.trim() || undefined,
+      createdAt: new Date().toISOString(),
+    };
+    setState((current) => ({
+      ...current,
+      expenses: [expense, ...current.expenses],
+    }));
+  }
+
+  function updateExpense(id: string, patch: ExpenseInput) {
+    setState((current) => ({
+      ...current,
+      expenses: current.expenses.map((expense) =>
+        expense.id === id
+          ? {
+              ...expense,
+              ...patch,
+              amount: Math.max(0, Math.round(patch.amount)),
+              note: patch.note?.trim() || undefined,
+            }
+          : expense,
+      ),
+    }));
+  }
+
+  function removeExpense(id: string) {
+    const expense = state.expenses.find((item) => item.id === id);
+    if (!expense) return;
+    if (!window.confirm(`Xóa khoản chi ${currency(expense.amount)} ngày ${shortDate(expense.date)}?`)) return;
+    setState((current) => ({
+      ...current,
+      expenses: current.expenses.filter((item) => item.id !== id),
+    }));
+  }
+
   function addCtv(form: CtvFormState) {
     const nextIndex = state.ctvs.length + 1;
     const code = form.code.trim() || `CTV${String(nextIndex).padStart(3, "0")}`;
@@ -1131,22 +1182,38 @@ export function CourseManagerApp({ session }: { session: ClientSession }) {
     setModal(nextModal);
   }
 
-  function addGroup(form: GroupFormState) {
+  async function addGroup(form: GroupFormState) {
     // Chỉ admin được tạo nhóm. CTV bị chặn (cả UI lẫn handler).
     if (!isAdmin) return;
+    const groupEmail = form.groupEmail.trim().toLowerCase();
+    const name = form.name.trim();
+
+    // Tạo Google Group THẬT trên Admin SDK trước; chỉ thêm vào state khi thành công.
+    setAdminNotice(`Đang tạo nhóm "${name}" trên Google…`);
+    let created;
+    try {
+      created = await apiCreateGroup(groupEmail, name);
+    } catch (error) {
+      const message = getErrorMessage(error);
+      setAdminNotice(`Tạo nhóm thất bại: ${message}`);
+      return;
+    }
+
     const group: CourseGroup = {
       id: makeId("grp"),
-      name: form.name.trim(),
-      groupEmail: form.groupEmail.trim(),
-      subject: form.subject.trim() || form.name.trim(),
+      name: created.name || name,
+      groupEmail: created.email || groupEmail,
+      subject: form.subject.trim() || name,
       teacher: form.teacher.trim() || "Admin",
       kind: form.kind,
       priceHint: Number(form.priceHint) || 0,
+      directMembersCount: created.directMembersCount,
     };
     setState((current) => ({
       ...current,
       groups: [...current.groups, group],
     }));
+    setAdminNotice(`Đã tạo nhóm "${group.name}" trên Google.`);
   }
 
   // Nạp danh sách nhóm THẬT từ Google (Admin SDK) — kèm số thành viên thật.
@@ -1437,6 +1504,14 @@ export function CourseManagerApp({ session }: { session: ClientSession }) {
                 >
                   <Filter size={18} aria-hidden="true" />
                 </button>
+                <button
+                  className="button secondary mobile-cashflow-button"
+                  type="button"
+                  onClick={() => setActiveView("cashflow")}
+                >
+                  <TrendingUp size={17} />
+                  <span>Dòng tiền</span>
+                </button>
                 <button className="button secondary" type="button" onClick={() => openEnrollmentModal("trial")}>
                   <FlaskConical size={17} />
                   <span>Học thử</span>
@@ -1499,6 +1574,15 @@ export function CourseManagerApp({ session }: { session: ClientSession }) {
               onEditTransaction={setEditingPaidId}
               onCancelEnrollment={cancelEnrollment}
               domainMembers={domainMembers}
+            />
+          ) : null}
+
+          {activeView === "cashflow" ? (
+            <CashflowView
+              state={state}
+              onAddExpense={addExpense}
+              onUpdateExpense={updateExpense}
+              onRemoveExpense={removeExpense}
             />
           ) : null}
 
@@ -1855,6 +1939,264 @@ function TransactionsView({
         </DataTable>
       </section>
     </>
+  );
+}
+
+function CashflowView({
+  state,
+  onAddExpense,
+  onUpdateExpense,
+  onRemoveExpense,
+}: {
+  state: AppState;
+  onAddExpense: (input: ExpenseInput) => void;
+  onUpdateExpense: (id: string, input: ExpenseInput) => void;
+  onRemoveExpense: (id: string) => void;
+}) {
+  const [granularity, setGranularity] = useState<"week" | "month">("month");
+  const [expenseModal, setExpenseModal] = useState<Expense | "new" | null>(null);
+  const series = useMemo(() => cashflowSeries(state, granularity), [state, granularity]);
+  const summary = useMemo(() => financeSummary(state), [state]);
+  const cumulative = series.at(-1)?.cumulative ?? 0;
+  const visibleCategoryRows = summary.byCategory.filter((item) => item.amount > 0);
+  const sortedExpenses = useMemo(
+    () =>
+      [...state.expenses].sort(
+        (a, b) => b.date.localeCompare(a.date) || (b.createdAt ?? "").localeCompare(a.createdAt ?? ""),
+      ),
+    [state.expenses],
+  );
+
+  return (
+    <>
+      <div className="page-heading cashflow-heading">
+        <div>
+          <h1>Dòng tiền</h1>
+          <p>Theo dõi tiền thực nhận, chi phí vận hành và số dư trên cơ sở thu chi thực tế.</p>
+        </div>
+        <Segmented
+          value={granularity}
+          options={[
+            { value: "week", label: "Tuần" },
+            { value: "month", label: "Tháng" },
+          ]}
+          onChange={(value) => setGranularity(value as "week" | "month")}
+        />
+      </div>
+
+      <div className="metric-grid cash-metric-grid">
+        <MetricCard label="Tổng thu" value={currency(summary.income)} icon={CheckCircle2} tone="green" />
+        <MetricCard label="Tổng chi" value={currency(summary.expense)} icon={ReceiptText} tone="amber" />
+        <MetricCard
+          label="Dòng tiền ròng"
+          value={currency(summary.net)}
+          icon={TrendingUp}
+          tone="blue"
+          negative={summary.net < 0}
+        />
+        <MetricCard
+          label="Số dư lũy kế"
+          value={currency(cumulative)}
+          icon={WalletCards}
+          tone="slate"
+          negative={cumulative < 0}
+        />
+      </div>
+
+      <div className="dashboard-grid cashflow-overview-grid">
+        <section className="panel span-8">
+          <PanelHeader
+            title={`Thu · chi · ròng theo ${granularity === "week" ? "tuần" : "tháng"}`}
+            action={series.length > 12 ? "12 kỳ gần nhất" : `${series.length} kỳ`}
+          />
+          <CashflowChart data={series.slice(-12)} />
+        </section>
+
+        <section className="panel span-4">
+          <PanelHeader title="Cơ cấu chi" action={currency(summary.expense)} />
+          {visibleCategoryRows.length ? (
+            <div className="expense-breakdown">
+              {visibleCategoryRows.map((item) => {
+                const percent = summary.expense > 0 ? (item.amount / summary.expense) * 100 : 0;
+                return (
+                  <div className="expense-category-row" key={item.category}>
+                    <div>
+                      <strong>{expenseCategoryLabel(item.category)}</strong>
+                      <span>{currency(item.amount)}</span>
+                    </div>
+                    <div className="expense-category-track" aria-hidden="true">
+                      <span style={{ width: `${percent}%` }} />
+                    </div>
+                    <small>{percent.toFixed(percent >= 10 ? 0 : 1)}%</small>
+                  </div>
+                );
+              })}
+            </div>
+          ) : (
+            <EmptyState label="Chưa có khoản chi." />
+          )}
+        </section>
+      </div>
+
+      <section className="panel">
+        <PanelHeader title="Dòng tiền theo kỳ" action={granularity === "week" ? "Tuần bắt đầu từ Thứ 2" : "Theo tháng"} />
+        <DataTable className="cashflow-period-table">
+          <thead>
+            <tr>
+              <th>Kỳ</th>
+              <th className="numeric">Thu</th>
+              <th className="numeric">Chi</th>
+              <th className="numeric">Ròng</th>
+              <th className="numeric">Lũy kế</th>
+            </tr>
+          </thead>
+          <tbody>
+            {series.length ? (
+              [...series].reverse().map((item) => (
+                <tr key={item.key}>
+                  <td data-label="Kỳ"><strong>{item.label}</strong></td>
+                  <td data-label="Thu" className="numeric money-cell cashflow-income">{currency(item.income)}</td>
+                  <td data-label="Chi" className="numeric money-cell cashflow-expense">{currency(item.expense)}</td>
+                  <td data-label="Ròng" className={`numeric money-cell ${item.net < 0 ? "negative" : "cashflow-net"}`}>
+                    {currency(item.net)}
+                  </td>
+                  <td data-label="Lũy kế" className={`numeric money-cell ${item.cumulative < 0 ? "negative" : ""}`}>
+                    {currency(item.cumulative)}
+                  </td>
+                </tr>
+              ))
+            ) : (
+              <EmptyTableRow colSpan={5} label="Chưa có dòng tiền trong kỳ." />
+            )}
+          </tbody>
+        </DataTable>
+      </section>
+
+      <section className="panel">
+        <div className="panel-header expense-panel-header">
+          <div>
+            <h2>Khoản chi</h2>
+            <span>{state.expenses.length} khoản đã ghi nhận</span>
+          </div>
+          <button className="button primary" type="button" onClick={() => setExpenseModal("new")}>
+            <Plus size={17} />
+            <span>Thêm khoản chi</span>
+          </button>
+        </div>
+        <DataTable className="expense-table">
+          <thead>
+            <tr>
+              <th>Ngày</th>
+              <th>Danh mục</th>
+              <th className="numeric">Số tiền</th>
+              <th>Ghi chú</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody>
+            {sortedExpenses.length ? (
+              sortedExpenses.map((expense) => (
+                <tr key={expense.id}>
+                  <td data-label="Ngày">{shortDate(expense.date)}</td>
+                  <td data-label="Danh mục"><StatusBadge variant="warning">{expenseCategoryLabel(expense.category)}</StatusBadge></td>
+                  <td data-label="Số tiền" className="numeric money-cell cashflow-expense">{currency(expense.amount)}</td>
+                  <td data-label="Ghi chú">{expense.note || "-"}</td>
+                  <td className="row-actions">
+                    <button className="mini-button" type="button" onClick={() => setExpenseModal(expense)}>
+                      <Pencil size={14} /> Sửa
+                    </button>
+                    <button className="mini-button danger" type="button" onClick={() => onRemoveExpense(expense.id)}>
+                      <Trash2 size={14} /> Xóa
+                    </button>
+                  </td>
+                </tr>
+              ))
+            ) : (
+              <EmptyTableRow colSpan={5} label="Chưa có khoản chi. Thêm khoản đầu tiên để tính dòng tiền ròng." />
+            )}
+          </tbody>
+        </DataTable>
+      </section>
+
+      {expenseModal ? (
+        <ExpenseModal
+          expense={expenseModal === "new" ? undefined : expenseModal}
+          onClose={() => setExpenseModal(null)}
+          onSubmit={(input) => {
+            if (expenseModal === "new") onAddExpense(input);
+            else onUpdateExpense(expenseModal.id, input);
+            setExpenseModal(null);
+          }}
+        />
+      ) : null}
+    </>
+  );
+}
+
+function CashflowChart({
+  data,
+}: {
+  data: Array<{ key: string; label: string; income: number; expense: number; net: number; cumulative: number }>;
+}) {
+  if (!data.length) return <EmptyState label="Chưa có dữ liệu để vẽ biểu đồ." />;
+
+  const maximum = Math.max(...data.flatMap((item) => [item.income, item.expense, item.net]), 0);
+  const minimum = Math.min(...data.map((item) => item.net), 0);
+  const range = Math.max(maximum - minimum, 1);
+  const y = (value: number) => 80 - ((value - minimum) / range) * 66;
+  const zeroY = y(0);
+  const slot = 84 / data.length;
+  const barWidth = Math.min(4, slot * 0.28);
+  const centers = data.map((_, index) => 8 + slot * (index + 0.5));
+  const netPoints =
+    data.length === 1
+      ? `42,${y(data[0].net)} 58,${y(data[0].net)}`
+      : data.map((item, index) => `${centers[index]},${y(item.net)}`).join(" ");
+
+  return (
+    <div className="bars-chart">
+      <svg viewBox="0 0 100 100" role="img" aria-label="Biểu đồ thu, chi và dòng tiền ròng">
+        <path d={`M6 ${zeroY} H94`} className="chart-axis" />
+        <path d="M6 14 H94" className="chart-grid" />
+        <path d="M6 47 H94" className="chart-grid" />
+        {data.map((item, index) => {
+          const incomeY = y(item.income);
+          const expenseY = y(item.expense);
+          return (
+            <g key={item.key}>
+              <rect
+                x={centers[index] - barWidth - 0.6}
+                y={Math.min(incomeY, zeroY)}
+                width={barWidth}
+                height={Math.max(Math.abs(zeroY - incomeY), 0.6)}
+                rx="0.9"
+                className="bar-income"
+              />
+              <rect
+                x={centers[index] + 0.6}
+                y={Math.min(expenseY, zeroY)}
+                width={barWidth}
+                height={Math.max(Math.abs(zeroY - expenseY), 0.6)}
+                rx="0.9"
+                className="bar-expense"
+              />
+            </g>
+          );
+        })}
+        <polyline points={netPoints} className="bar-net-line" />
+        {data.map((item, index) => (
+          <circle key={item.key} cx={centers[index]} cy={y(item.net)} r="1.5" className="bar-net-dot" />
+        ))}
+      </svg>
+      <div className="cashflow-chart-key" aria-label="Chú giải biểu đồ">
+        <span><i className="income" /> Thu</span>
+        <span><i className="expense" /> Chi</span>
+        <span><i className="net" /> Ròng</span>
+      </div>
+      <div className="cashflow-chart-labels">
+        {data.map((item) => <span key={item.key}>{item.label}</span>)}
+      </div>
+    </div>
   );
 }
 
@@ -2833,6 +3175,60 @@ function AddCtvModal({
   );
 }
 
+function ExpenseModal({
+  expense,
+  onClose,
+  onSubmit,
+}: {
+  expense?: Expense;
+  onClose: () => void;
+  onSubmit: (input: ExpenseInput) => void;
+}) {
+  const [date, setDate] = useState(expense?.date ?? todayISO());
+  const [category, setCategory] = useState<ExpenseCategory>(expense?.category ?? "material");
+  const [amount, setAmount] = useState(expense ? String(expense.amount) : "");
+  const [note, setNote] = useState(expense?.note ?? "");
+  const [error, setError] = useState("");
+
+  function submit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const normalizedAmount = Math.round(Number(amount));
+    if (!date) {
+      setError("Vui lòng chọn ngày chi.");
+      return;
+    }
+    if (!Number.isFinite(normalizedAmount) || normalizedAmount <= 0) {
+      setError("Số tiền phải lớn hơn 0.");
+      return;
+    }
+    onSubmit({ date, category, amount: normalizedAmount, note });
+  }
+
+  return (
+    <ModalShell title={expense ? "Sửa khoản chi" : "Thêm khoản chi"} onClose={onClose}>
+      <form className="form-grid" onSubmit={submit}>
+        <TextField label="Ngày" type="date" value={date} onChange={setDate} required />
+        <SelectField
+          label="Danh mục"
+          value={category}
+          options={expenseCategories.map((value) => ({ value, label: expenseCategoryLabel(value) }))}
+          onChange={(value) => setCategory(value as ExpenseCategory)}
+        />
+        <TextField label="Số tiền (VND)" type="number" value={amount} onChange={setAmount} required />
+        <TextField label="Ghi chú" value={note} onChange={setNote} />
+        {error ? <p className="status-note danger expense-form-error">{error}</p> : null}
+        <div className="modal-actions">
+          <button className="button ghost" type="button" onClick={onClose}>Hủy</button>
+          <button className="button primary" type="submit">
+            <Save size={17} />
+            <span>{expense ? "Lưu thay đổi" : "Lưu khoản chi"}</span>
+          </button>
+        </div>
+      </form>
+    </ModalShell>
+  );
+}
+
 function JobsView({
   state,
   onRetryJob,
@@ -3770,14 +4166,16 @@ function MetricCard({
   value,
   icon: Icon,
   tone,
+  negative = false,
 }: {
   label: string;
   value: string;
   icon: LucideIcon;
   tone: "blue" | "green" | "amber" | "slate";
+  negative?: boolean;
 }) {
   return (
-    <section className={`metric-card ${tone}`}>
+    <section className={`metric-card ${tone}${negative ? " negative" : ""}`}>
       <div className="metric-icon">
         <Icon size={20} />
       </div>
@@ -3993,100 +4391,3 @@ function UserCard({ session }: { session: ClientSession }) {
   );
 }
 
-function createJob(type: GroupJob["type"], groupId?: string, studentGmail?: string): GroupJob {
-  return {
-    id: makeId("job"),
-    type,
-    groupId,
-    studentGmail,
-    status: "queued",
-    attempts: 0,
-    createdAt: new Date().toISOString(),
-  };
-}
-
-function jobGroupLabel(state: AppState, job: GroupJob, fallback = "-") {
-  const directGroup = job.groupId
-    ? state.groups.find((group) => group.id === job.groupId)
-    : undefined;
-  if (directGroup) return directGroup.name;
-
-  const gmail = job.studentGmail?.trim().toLowerCase();
-  if (!gmail) return fallback;
-
-  const studentIds = new Set(
-    state.students
-      .filter((student) => student.gmail.trim().toLowerCase() === gmail)
-      .map((student) => student.id),
-  );
-  if (!studentIds.size) return fallback;
-
-  const labels = state.enrollments
-    .filter((enrollment) => studentIds.has(enrollment.studentId))
-    .filter((enrollment) => !job.groupId || enrollment.groupId === job.groupId)
-    .map((enrollment) => {
-      const group = state.groups.find((item) => item.id === enrollment.groupId);
-      return group?.name || enrollment.courseType;
-    })
-    .filter((label, index, all) => label && all.indexOf(label) === index);
-
-  return labels.length ? labels.join(", ") : fallback;
-}
-
-function addDaysISO(days: number) {
-  const date = new Date();
-  date.setDate(date.getDate() + days);
-  return date.toISOString().slice(0, 10);
-}
-
-function matchesQuery(enrollment: Enrollment, query: string, state: AppState) {
-  const normalized = query.trim().toLowerCase();
-  if (!normalized) return true;
-  const student = state.students.find((item) => item.id === enrollment.studentId);
-  const ctv = state.ctvs.find((item) => item.id === enrollment.ctvId);
-  const group = state.groups.find((item) => item.id === enrollment.groupId);
-  const haystack = [
-    student?.gmail,
-    student?.name,
-    ctv?.name,
-    ctv?.code,
-    group?.name,
-    group?.groupEmail,
-    enrollment.courseType,
-  ]
-    .filter(Boolean)
-    .join(" ")
-    .toLowerCase();
-
-  return haystack.includes(normalized);
-}
-
-function normalizePersistedState(parsed: AppState): AppState {
-  const groups = (parsed.groups ?? []).filter((group) => group.id && group.groupEmail);
-  const groupIds = new Set(groups.map((group) => group.id));
-
-  return {
-    ...seedState,
-    ...parsed,
-    settings: {
-      ...seedState.settings,
-      ...parsed.settings,
-    },
-    groups,
-    groupMembers: (parsed.groupMembers ?? []).filter((member) => groupIds.has(member.groupId)),
-    jobs: (parsed.jobs ?? []).filter((job) => !job.groupId || groupIds.has(job.groupId)),
-  };
-}
-
-function buildModelShape(_state: AppState) {
-  return {
-    ctvMap: byId(_state.ctvs),
-    studentMap: byId(_state.students),
-    groupMap: byId(_state.groups),
-    summary: metrics(_state),
-    ctvDebt: debtByCtv(_state),
-    paid: paidEnrollments(_state),
-    trials: trialEnrollments(_state),
-    trend: trendSeries(_state),
-  };
-}

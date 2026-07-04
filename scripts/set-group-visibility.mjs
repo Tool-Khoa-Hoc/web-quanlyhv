@@ -20,7 +20,9 @@ import { parseArgs } from "node:util";
 import { google } from "googleapis";
 
 const DESIRED = {
-  showInGroupDirectory: "true",
+  // Lưu ý: showInGroupDirectory đã bị Google deprecate — luôn đọc lại là "false"
+  // và việc hiển thị/khám phá group nay do whoCanDiscoverGroup điều khiển. Bỏ khỏi
+  // mục tiêu để tránh diff giả mãi báo "cần đổi".
   whoCanDiscoverGroup: "ANYONE_CAN_DISCOVER",
   whoCanViewGroup: "ALL_MEMBERS_CAN_VIEW",
   whoCanViewMembership: "ALL_MEMBERS_CAN_VIEW",

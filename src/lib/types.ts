@@ -1,6 +1,7 @@
 export type ViewKey =
   | "dashboard"
   | "transactions"
+  | "cashflow"
   | "trials"
   | "ctv"
   | "students"
@@ -15,6 +16,13 @@ export type PaymentStatus = "pending" | "received";
 export type JobStatus = "queued" | "running" | "done" | "failed" | "needs_session";
 export type JobType = "add_member" | "remove_member" | "update_role" | "verify_session";
 export type GroupRole = "owner" | "manager" | "member";
+export type ExpenseCategory =
+  | "material"
+  | "system"
+  | "marketing"
+  | "salary"
+  | "office"
+  | "other";
 
 export interface Ctv {
   id: string;
@@ -61,6 +69,15 @@ export interface Enrollment {
   note?: string;
 }
 
+export interface Expense {
+  id: string;
+  date: string;
+  category: ExpenseCategory;
+  amount: number;
+  note?: string;
+  createdAt?: string;
+}
+
 export interface GroupMember {
   id: string;
   groupId: string;
@@ -95,6 +112,7 @@ export interface AppState {
   groups: CourseGroup[];
   groupMembers: GroupMember[];
   enrollments: Enrollment[];
+  expenses: Expense[];
   jobs: GroupJob[];
   settings: Settings;
 }

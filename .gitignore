@@ -45,6 +45,9 @@ yarn-debug.log*
 yarn-error.log*
 .eslintcache
 
+# ===== Ảnh tham chiếu thiết kế — không phục vụ runtime, không commit =====
+design-references/
+
 # ===== Hệ điều hành / Editor =====
 .DS_Store
 Thumbs.db

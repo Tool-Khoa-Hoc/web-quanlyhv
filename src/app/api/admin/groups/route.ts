@@ -7,7 +7,7 @@ import {
   getGroupByKey,
   getWorkspaceDomain,
 } from "@/lib/google-admin";
-import { requireSession } from "@/lib/api-guard";
+import { rejectCrossSiteMutation, requireAdmin, requireSession } from "@/lib/api-guard";
 import type { ApiGroup } from "@/lib/admin-types";
 
 export const dynamic = "force-dynamic";
@@ -57,6 +57,50 @@ export async function GET() {
 
     groups.sort((a, b) => a.name.localeCompare(b.name, "vi"));
     return NextResponse.json({ groups });
+  } catch (error) {
+    const { status, message } = describeApiError(error);
+    return NextResponse.json({ error: message }, { status });
+  }
+}
+
+// POST /api/admin/groups  body: { email, name?, description? } → tạo Google Group thật.
+// Chỉ admin được tạo nhóm (CTV bị chặn).
+export async function POST(request: Request) {
+  const session = await requireAdmin();
+  if (session instanceof NextResponse) return session;
+  const crossSite = rejectCrossSiteMutation(request);
+  if (crossSite) return crossSite;
+
+  try {
+    const body = (await request.json()) as {
+      email?: string;
+      name?: string;
+      description?: string;
+    };
+    const email = body.email?.trim().toLowerCase();
+    if (!email) {
+      return NextResponse.json({ error: "Thiếu email nhóm." }, { status: 400 });
+    }
+    const name = body.name?.trim() || email;
+
+    const directory = getDirectory();
+    const res = await directory.groups.insert({
+      requestBody: {
+        email,
+        name,
+        description: body.description?.trim() || undefined,
+      },
+    });
+
+    const g = res.data;
+    const group: ApiGroup = {
+      id: g.id ?? "",
+      email: g.email ?? email,
+      name: g.name ?? name,
+      description: g.description ?? "",
+      directMembersCount: Number(g.directMembersCount ?? 0),
+    };
+    return NextResponse.json({ group }, { status: 201 });
   } catch (error) {
     const { status, message } = describeApiError(error);
     return NextResponse.json({ error: message }, { status });

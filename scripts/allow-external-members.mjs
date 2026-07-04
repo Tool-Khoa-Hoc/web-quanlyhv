@@ -8,7 +8,10 @@ import { resolve } from "node:path";
 import { parseArgs } from "node:util";
 import { google } from "googleapis";
 
-const SCOPES = ["https://www.googleapis.com/auth/apps.groups.settings"];
+const SCOPES = [
+  "https://www.googleapis.com/auth/apps.groups.settings",
+  "https://www.googleapis.com/auth/admin.directory.group",
+];
 
 function loadEnvFile(fileName) {
   const filePath = resolve(process.cwd(), fileName);
@@ -78,6 +81,18 @@ async function sleep(ms) {
   return new Promise((r) => setTimeout(r, ms));
 }
 
+async function listAllGroups(auth, domain) {
+  const dir = google.admin({ version: "directory_v1", auth });
+  const out = [];
+  let pt;
+  do {
+    const res = await dir.groups.list({ domain, maxResults: 200, pageToken: pt });
+    for (const g of res.data.groups || []) out.push(g.email);
+    pt = res.data.nextPageToken;
+  } while (pt);
+  return out;
+}
+
 async function main() {
   loadEnvFile(".env.local");
   loadEnvFile(".env");
@@ -85,10 +100,12 @@ async function main() {
   const { values } = parseArgs({
     options: {
       file: { type: "string", default: "scripts/groups-members.tsv" },
+      all: { type: "boolean", default: false },
       "dry-run": { type: "boolean", default: false },
     },
   });
   const dryRun = Boolean(values["dry-run"]);
+  const useAll = Boolean(values.all);
   const dataFile = resolve(process.cwd(), values.file);
 
   const domain = requiredEnv("GOOGLE_WORKSPACE_DOMAIN");
@@ -102,7 +119,7 @@ async function main() {
   });
   const gs = google.groupssettings({ version: "v1", auth });
 
-  const groups = parseGroupList(dataFile, domain);
+  const groups = useAll ? await listAllGroups(auth, domain) : parseGroupList(dataFile, domain);
   console.log(`Domain      : ${domain}`);
   console.log(`Số group    : ${groups.length}`);
   console.log(dryRun ? "Mode        : DRY-RUN\n" : "Mode        : LIVE\n");

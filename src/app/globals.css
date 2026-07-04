@@ -365,6 +365,10 @@ button {
   width: 100%;
 }
 
+.mobile-cashflow-button {
+  display: none;
+}
+
 .icon-button {
   width: 40px;
   height: 40px;
@@ -556,6 +560,14 @@ button {
   color: #334155;
 }
 
+.metric-card.negative strong {
+  color: var(--red);
+}
+
+.metric-card.negative::after {
+  background: linear-gradient(90deg, #ef4444, var(--red));
+}
+
 .cash-metric-grid .metric-card {
   min-height: 96px;
 }
@@ -616,6 +628,165 @@ button {
 .trend-chart {
   display: grid;
   gap: 12px;
+}
+
+.bars-chart {
+  display: grid;
+  gap: 10px;
+}
+
+.bars-chart svg {
+  width: 100%;
+  height: 260px;
+  border-radius: 8px;
+  background: #f8fafc;
+}
+
+.bar-income {
+  fill: var(--green);
+  opacity: 0.86;
+}
+
+.bar-expense {
+  fill: var(--red);
+  opacity: 0.76;
+}
+
+.bar-net-line {
+  fill: none;
+  stroke: var(--blue);
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.bar-net-dot {
+  fill: #ffffff;
+  stroke: var(--blue);
+  stroke-width: 1.2;
+}
+
+.cashflow-chart-key {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 14px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.cashflow-chart-key span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.cashflow-chart-key i {
+  display: inline-block;
+  width: 16px;
+  height: 4px;
+  border-radius: 999px;
+}
+
+.cashflow-chart-key i.income {
+  background: var(--green);
+}
+
+.cashflow-chart-key i.expense {
+  background: var(--red);
+}
+
+.cashflow-chart-key i.net {
+  background: var(--blue);
+}
+
+.cashflow-chart-labels {
+  display: flex;
+  gap: 4px;
+  overflow-x: auto;
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 700;
+  text-align: center;
+}
+
+.cashflow-chart-labels span {
+  flex: 1 0 64px;
+}
+
+.cashflow-heading .segmented {
+  flex: 0 0 auto;
+}
+
+.expense-breakdown {
+  display: grid;
+  gap: 16px;
+}
+
+.expense-category-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 7px 10px;
+  align-items: center;
+}
+
+.expense-category-row > div:first-child {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  grid-column: 1 / -1;
+}
+
+.expense-category-row strong,
+.expense-category-row span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.expense-category-row span,
+.expense-category-row small {
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.expense-category-track {
+  height: 8px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: #f1f5f9;
+}
+
+.expense-category-track span {
+  display: block;
+  height: 100%;
+  min-width: 2px;
+  border-radius: inherit;
+  background: linear-gradient(90deg, #f59e0b, var(--amber));
+}
+
+.cashflow-income,
+.cashflow-net {
+  color: #15803d;
+}
+
+.cashflow-expense,
+.negative {
+  color: var(--red);
+}
+
+.expense-panel-header > div {
+  display: grid;
+  gap: 4px;
+}
+
+.expense-panel-header {
+  align-items: flex-end;
+}
+
+.expense-form-error {
+  grid-column: 1 / -1;
 }
 
 .trend-chart svg {
@@ -1564,6 +1735,10 @@ button {
     padding: 0 10px;
   }
 
+  .topbar-actions .mobile-cashflow-button {
+    display: inline-flex;
+  }
+
   .topbar-actions .icon-button {
     flex: 0 0 40px;
     width: 40px;
@@ -1676,6 +1851,19 @@ button {
 
   .trend-chart svg {
     height: 180px;
+  }
+
+  .bars-chart svg {
+    height: 200px;
+  }
+
+  .expense-panel-header {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .expense-panel-header .button {
+    width: 100%;
   }
 
   .ctv-stats {
@@ -1841,6 +2029,88 @@ button {
   }
 
   .jobs-table td.row-actions::before {
+    content: none;
+  }
+
+  .cashflow-period-table,
+  .expense-table {
+    min-width: 0;
+  }
+
+  .cashflow-period-table thead,
+  .expense-table thead {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
+  }
+
+  .cashflow-period-table,
+  .cashflow-period-table tbody,
+  .cashflow-period-table tr,
+  .cashflow-period-table td,
+  .expense-table,
+  .expense-table tbody,
+  .expense-table tr,
+  .expense-table td {
+    display: block;
+    width: 100%;
+  }
+
+  .cashflow-period-table tr,
+  .expense-table tr {
+    margin-bottom: 10px;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 6px 12px;
+    background: #ffffff;
+  }
+
+  .cashflow-period-table td,
+  .expense-table td {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 8px 0;
+    border-bottom: 1px solid #f1f5f9;
+    text-align: right !important;
+  }
+
+  .cashflow-period-table tr td:last-child,
+  .expense-table tr td:last-child {
+    border-bottom: 0;
+  }
+
+  .cashflow-period-table td::before,
+  .expense-table td::before {
+    content: attr(data-label);
+    flex: 0 0 auto;
+    color: var(--muted);
+    font-size: 12px;
+    font-weight: 750;
+    text-align: left;
+  }
+
+  .expense-table td.row-actions {
+    justify-content: flex-end;
+    flex-wrap: wrap;
+  }
+
+  .expense-table td.row-actions::before {
+    content: none;
+  }
+
+  .cashflow-period-table .empty-table-row td,
+  .expense-table .empty-table-row td {
+    display: block;
+    text-align: center !important;
+  }
+
+  .cashflow-period-table .empty-table-row td::before,
+  .expense-table .empty-table-row td::before {
     content: none;
   }
 }

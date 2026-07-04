@@ -1,12 +1,12 @@
 import "server-only";
 
 import { getRedis, isKvConfigured } from "./kv";
-import type { Ctv, Enrollment, GroupJob, Settings, Student } from "./types";
+import type { Ctv, Enrollment, Expense, GroupJob, Settings, Student } from "./types";
 
 // ===== Sổ cái dùng chung (Vercel KV / Upstash Redis) =====
-// Lưu phần dữ liệu nghiệp vụ của admin (CTV, học viên, giao dịch, thông số) để
-// đồng bộ giữa nhiều thiết bị. Groups/groupMembers/jobs KHÔNG ở đây vì lấy trực
-// tiếp từ Google Admin SDK / hàng đợi cục bộ.
+// Lưu phần dữ liệu nghiệp vụ của admin (CTV, học viên, giao dịch, chi phí,
+// jobs, thông số) để đồng bộ giữa nhiều thiết bị. Groups/groupMembers không ở
+// đây vì được lấy trực tiếp từ Google Admin SDK.
 //
 // Toàn bộ lưu trong 1 key JSON. Mỗi lần ghi tăng `rev` để client phát hiện đụng độ.
 
@@ -16,6 +16,7 @@ export interface LedgerData {
   ctvs: Ctv[];
   students: Student[];
   enrollments: Enrollment[];
+  expenses: Expense[];
   jobs: GroupJob[];
   settings: Settings;
   rev: number;
@@ -31,7 +32,13 @@ export function isLedgerConfigured(): boolean {
 function parseLedger(raw: string | null | undefined): LedgerData | null {
   if (!raw) return null;
   try {
-    return JSON.parse(raw) as LedgerData;
+    const parsed = JSON.parse(raw) as Omit<LedgerData, "expenses"> & { expenses?: Expense[] };
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return null;
+    return {
+      ...parsed,
+      // Ledger v1 cũ không có chi phí; coi như danh sách rỗng khi đọc lại.
+      expenses: Array.isArray(parsed.expenses) ? parsed.expenses : [],
+    };
   } catch {
     return null;
   }
@@ -67,6 +74,7 @@ export async function writeLedger(
     ctvs: payload.ctvs,
     students: payload.students,
     enrollments: payload.enrollments,
+    expenses: payload.expenses,
     jobs: payload.jobs,
     settings: payload.settings,
     rev: currentRev + 1,
