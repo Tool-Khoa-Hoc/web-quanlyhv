@@ -2,19 +2,14 @@ import { NextResponse } from "next/server";
 
 import { rejectCrossSiteMutation, requireAdmin } from "@/lib/api-guard";
 import type { ApiLockedGroup, ApiLockStudentResult } from "@/lib/admin-types";
-import { describeApiError, getDirectory, getWorkspaceDomain } from "@/lib/google-admin";
+import { describeApiError, getDirectory } from "@/lib/google-admin";
 import { getErrorMessage } from "@/lib/error-message";
 
 export const dynamic = "force-dynamic";
 
-function isStudentAccessGroup(email: string): boolean {
-  const localPart = email.trim().toLowerCase().split("@", 1)[0] ?? "";
-  return localPart.startsWith("sv-");
-}
-
 // POST /api/admin/students/:studentEmail/lock
-// Thu hồi membership trực tiếp khỏi mọi group dành cho sinh viên (primary email bắt đầu `sv-`).
-// Không suspend tài khoản Workspace và không tác động các group khác như nhóm CTV/học thử.
+// Thu hồi membership trực tiếp của học viên khỏi mọi Google Group mà họ đang là thành viên.
+// Không suspend tài khoản Workspace.
 export async function POST(
   request: Request,
   { params }: { params: Promise<{ studentEmail: string }> },
@@ -32,19 +27,20 @@ export async function POST(
 
   try {
     const directory = getDirectory();
-    const domain = getWorkspaceDomain();
     const matchedGroups: ApiLockedGroup[] = [];
     let pageToken: string | undefined;
 
+    // Liệt kê trực tiếp các group mà học viên đang là thành viên (mọi tên/tiền tố),
+    // thay vì đoán theo tiền tố email group.
     do {
       const res = await directory.groups.list({
-        domain,
+        userKey: studentEmail,
         maxResults: 200,
         pageToken,
       });
       for (const group of res.data.groups ?? []) {
         const email = (group.email ?? "").trim().toLowerCase();
-        if (!email || !isStudentAccessGroup(email)) continue;
+        if (!email) continue;
         matchedGroups.push({ email, name: group.name ?? email });
       }
       pageToken = res.data.nextPageToken ?? undefined;

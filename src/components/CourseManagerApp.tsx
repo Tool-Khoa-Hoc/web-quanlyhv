@@ -1004,15 +1004,12 @@ export function CourseManagerApp({ session }: { session: ClientSession }) {
         .filter((item) => item.studentId === studentId)
         .map((item) => item.groupId),
     );
-    const knownGroups = state.groups.filter((group) => {
-      const localPart = group.groupEmail.trim().toLowerCase().split("@", 1)[0] ?? "";
-      return enrolledGroupIds.has(group.id) && localPart.startsWith("sv-");
-    });
+    const knownGroups = state.groups.filter((group) => enrolledGroupIds.has(group.id));
     const knownGroupText = knownGroups.length
       ? `\n\nNhóm đang ghi nhận:\n${knownGroups.map((group) => `• ${group.name}`).join("\n")}`
       : "";
     const confirmed = window.confirm(
-      `Khóa truy cập của ${student.gmail}? Tài khoản sẽ bị xóa khỏi tất cả Google Group có tiền tố sv-.${knownGroupText}`,
+      `Khóa truy cập của ${student.gmail}? Tài khoản sẽ bị gỡ khỏi tất cả Google Group mà học viên đang là thành viên.${knownGroupText}`,
     );
     if (!confirmed) return undefined;
 
@@ -1042,7 +1039,7 @@ export function CourseManagerApp({ session }: { session: ClientSession }) {
       setAdminNotice(
         result.removedGroups.length
           ? `Đã khóa ${student.gmail}: gỡ khỏi ${result.removedGroups.length} nhóm${removedNames ? ` (${removedNames})` : ""}.${failureSuffix}`
-          : `Không có membership trực tiếp nào của ${student.gmail} trong group tiền tố sv-.${failureSuffix}`,
+          : `Không có membership trực tiếp nào của ${student.gmail} trong Google Group.${failureSuffix}`,
       );
       return result;
     } catch (error) {
@@ -2626,7 +2623,7 @@ function StudentsView({
                         className="mini-button danger student-lock-button"
                         disabled={Boolean(lockingStudentId)}
                         onClick={() => void lockStudent(student.id)}
-                        title="Gỡ học viên khỏi tất cả Google Group có tiền tố sv-"
+                        title="Gỡ học viên khỏi tất cả Google Group mà họ đang là thành viên"
                         type="button"
                       >
                         <LockKeyhole size={14} />
