@@ -1748,12 +1748,12 @@ function DashboardView({
       </div>
 
       <div className="dashboard-grid">
-        <section className="panel span-7">
+        <section className="panel span-8">
           <PanelHeader title="Doanh thu theo ngày" action={`${model.summary.unpaidCount} khóa chưa trả`} />
           <TrendChart data={model.trend} />
         </section>
 
-        <section className="panel span-5">
+        <section className="panel span-4">
           <PanelHeader title="Công nợ theo CTV" action="Ưu tiên thu" />
           <div className="stack-list">
             {model.ctvDebt.map((row) => (
@@ -4314,94 +4314,181 @@ function InlineStat({ label, value, strong = false }: { label: string; value: st
   );
 }
 
-function TrendChart({ data }: { data: Array<{ date: string; revenue: number; share: number }> }) {
+type TrendPoint = { date: string; revenue: number; share: number };
+type TrendRange = 30 | 90 | 180 | "all";
+
+const trendRangeOptions: Array<{ value: TrendRange; label: string }> = [
+  { value: 30, label: "30 ngày" },
+  { value: 90, label: "90 ngày" },
+  { value: 180, label: "180 ngày" },
+  { value: "all", label: "Tất cả" },
+];
+
+function TrendChart({ data }: { data: TrendPoint[] }) {
   const [active, setActive] = useState<number | null>(null);
+  const [range, setRange] = useState<TrendRange>(30);
 
   if (!data.length) {
     return <EmptyState label="Chưa có doanh thu." />;
   }
 
+  const visibleData = range === "all" ? data : data.slice(-range);
   const padX = 1.5;
   const spanX = 100 - padX * 2;
   const topY = 12;
   const baseY = 92;
-  const max = Math.max(...data.map((item) => item.revenue), 1);
-  const xAt = (index: number) => (data.length === 1 ? 50 : padX + (index / (data.length - 1)) * spanX);
-  const yAt = (revenue: number) => baseY - (revenue / max) * (baseY - topY);
+  const max = Math.max(...visibleData.map((item) => item.share), 1);
+  const xAt = (index: number) =>
+    visibleData.length === 1 ? 50 : padX + (index / (visibleData.length - 1)) * spanX;
+  const yAt = (value: number) => baseY - (value / max) * (baseY - topY);
 
-  const line = data.map((item, index) => `${xAt(index)},${yAt(item.revenue)}`).join(" ");
-  const area = `M${xAt(0)},${baseY} L${line} L${xAt(data.length - 1)},${baseY} Z`;
-  const showDots = data.length <= 31;
+  const line = visibleData.map((item, index) => `${xAt(index)},${yAt(item.share)}`).join(" ");
+  const area = `M${xAt(0)},${baseY} L${line} L${xAt(visibleData.length - 1)},${baseY} Z`;
+  const showDots = visibleData.length <= 45;
 
-  // Compact summary shown instead of a per-day card grid (which gets cluttered over 90+ days).
-  const totalShare = data.reduce((sum, item) => sum + item.share, 0);
-  const avgShare = Math.round(totalShare / data.length);
-  const bestIndex = data.reduce((best, item, index) => (item.share > data[best].share ? index : best), 0);
+  const totalShare = visibleData.reduce((sum, item) => sum + item.share, 0);
+  const totalRevenue = visibleData.reduce((sum, item) => sum + item.revenue, 0);
+  const avgShare = Math.round(totalShare / visibleData.length);
+  const bestIndex = visibleData.reduce((best, item, index) => (item.share > visibleData[best].share ? index : best), 0);
+  const firstDate = shortDate(visibleData[0].date).slice(0, 5);
+  const lastDate = shortDate(visibleData[visibleData.length - 1].date).slice(0, 5);
+  const rangeLabel = visibleData.length === 1 ? firstDate : `${firstDate} - ${lastDate}`;
 
-  // Sample a few x-axis labels so the timeline stays readable with many points.
+  const labelCount = visibleData.length <= 2 ? visibleData.length : visibleData.length <= 45 ? 4 : visibleData.length <= 120 ? 5 : 6;
   const labelIndexes = Array.from(
-    new Set([0, Math.floor((data.length - 1) / 2), data.length - 1].filter((i) => i >= 0)),
+    new Set(
+      Array.from({ length: labelCount }, (_, index) =>
+        labelCount <= 1 ? 0 : Math.round((index * (visibleData.length - 1)) / (labelCount - 1)),
+      ),
+    ),
   );
 
-  const activeItem = active != null ? data[active] : null;
+  const activeItem = active != null ? visibleData[active] : null;
 
   const onMove = (event: MouseEvent<HTMLDivElement>) => {
-    if (data.length === 1) return setActive(0);
+    if (visibleData.length === 1) return setActive(0);
     const rect = event.currentTarget.getBoundingClientRect();
     const ratio = Math.min(1, Math.max(0, (event.clientX - rect.left) / rect.width));
-    setActive(Math.round(ratio * (data.length - 1)));
+    setActive(Math.round(ratio * (visibleData.length - 1)));
   };
 
   return (
     <div className="trend-chart">
-      <div className="chart-plot" onMouseMove={onMove} onMouseLeave={() => setActive(null)}>
-        <svg viewBox="0 0 100 100" preserveAspectRatio="none" role="img" aria-label="Biểu đồ doanh thu">
-          <path d={`M0 ${(topY + baseY) / 2} H100`} className="chart-grid" />
-          <path d={`M0 ${baseY} H100`} className="chart-axis" />
-          <path d={area} className="chart-area" />
-          <polyline points={line} className="chart-line" />
-          {showDots
-            ? data.map((item, index) => (
-                <circle key={item.date} cx={xAt(index)} cy={yAt(item.revenue)} r="1.6" className="chart-dot" />
-              ))
-            : null}
-          {activeItem ? (
-            <>
-              <path d={`M${xAt(active as number)} ${topY} V${baseY}`} className="chart-guide" />
-              <circle cx={xAt(active as number)} cy={yAt(activeItem.revenue)} r="2.2" className="chart-dot active" />
-            </>
-          ) : null}
-        </svg>
-        {activeItem ? (
-          <div
-            className="chart-tooltip"
-            style={{ left: `${xAt(active as number)}%` }}
-            data-flip={xAt(active as number) > 65 ? "left" : xAt(active as number) < 35 ? "right" : "center"}
-          >
-            <span>{shortDate(activeItem.date)}</span>
-            <strong>{currency(activeItem.share)}</strong>
-          </div>
-        ) : null}
-        <div className="chart-xlabels">
-          {labelIndexes.map((index) => (
-            <span key={index} style={{ left: `${xAt(index)}%` }}>
-              {shortDate(data[index].date).slice(0, 5)}
-            </span>
+      <div className="trend-chart-header">
+        <div className="trend-chart-range">
+          <span>{visibleData.length}/{data.length} ngày</span>
+          <strong>{rangeLabel}</strong>
+        </div>
+        <div className="chart-range-tabs" role="group" aria-label="Khoảng thời gian doanh thu">
+          {trendRangeOptions.map((option) => (
+            <button
+              key={option.value}
+              type="button"
+              className={range === option.value ? "active" : ""}
+              aria-pressed={range === option.value}
+              onClick={() => {
+                setRange(option.value);
+                setActive(null);
+              }}
+            >
+              {option.label}
+            </button>
           ))}
         </div>
       </div>
-      <div className="chart-summary">
+
+      <div className="chart-stats">
         <div>
-          <span>Tổng {data.length} ngày</span>
+          <span>Anh nhận</span>
           <strong>{currency(totalShare)}</strong>
         </div>
         <div>
-          <span>Trung bình/ngày</span>
+          <span>Doanh số</span>
+          <strong>{currency(totalRevenue)}</strong>
+        </div>
+        <div>
+          <span>TB/ngày</span>
           <strong>{currency(avgShare)}</strong>
         </div>
         <div>
-          <span>Cao nhất · {shortDate(data[bestIndex].date).slice(0, 5)}</span>
-          <strong>{currency(data[bestIndex].share)}</strong>
+          <span>Cao nhất · {shortDate(visibleData[bestIndex].date).slice(0, 5)}</span>
+          <strong>{currency(visibleData[bestIndex].share)}</strong>
+        </div>
+      </div>
+
+      <div className="chart-body">
+        <div className="chart-plot" onMouseMove={onMove} onMouseLeave={() => setActive(null)}>
+          <svg viewBox="0 0 100 100" preserveAspectRatio="none" role="img" aria-label="Biểu đồ doanh thu theo ngày">
+            <path d={`M0 ${topY} H100`} className="chart-grid light" />
+            <path d={`M0 ${(topY + baseY) / 2} H100`} className="chart-grid" />
+            <path d={`M0 ${baseY} H100`} className="chart-axis" />
+            <path d={area} className="chart-area" />
+            <polyline points={line} className="chart-line" />
+            {showDots
+              ? visibleData.map((item, index) => (
+                  <circle key={item.date} cx={xAt(index)} cy={yAt(item.share)} r="1.45" className="chart-dot" />
+                ))
+              : null}
+            {activeItem ? (
+              <>
+                <path d={`M${xAt(active as number)} ${topY} V${baseY}`} className="chart-guide" />
+                <circle cx={xAt(active as number)} cy={yAt(activeItem.share)} r="2.25" className="chart-dot active" />
+              </>
+            ) : null}
+          </svg>
+          {activeItem ? (
+            <div
+              className="chart-tooltip"
+              style={{ left: `${xAt(active as number)}%` }}
+              data-flip={xAt(active as number) > 65 ? "left" : xAt(active as number) < 35 ? "right" : "center"}
+            >
+              <span>{shortDate(activeItem.date)}</span>
+              <strong>{currency(activeItem.share)}</strong>
+            </div>
+          ) : null}
+          <div className="chart-xlabels">
+            {labelIndexes.map((index) => (
+              <span key={index} style={{ left: `${xAt(index)}%` }}>
+                {shortDate(visibleData[index].date).slice(0, 5)}
+              </span>
+            ))}
+          </div>
+        </div>
+
+        <div className="daily-revenue-panel">
+          <div className="daily-revenue-head">
+            <span>Ngày</span>
+            <span>Tỷ trọng</span>
+            <span>Anh nhận</span>
+          </div>
+          <div className="daily-revenue-list" onMouseLeave={() => setActive(null)}>
+            {visibleData
+              .map((item, index) => ({ item, index }))
+              .reverse()
+              .map(({ item, index }) => {
+                const percent = item.share > 0 ? Math.max((item.share / max) * 100, 3) : 0;
+                return (
+                  <button
+                    key={item.date}
+                    type="button"
+                    className={active === index ? "daily-revenue-row active" : "daily-revenue-row"}
+                    onMouseEnter={() => setActive(index)}
+                    onFocus={() => setActive(index)}
+                    onBlur={() => setActive(null)}
+                    aria-label={`${shortDate(item.date)}: ${currency(item.share)}`}
+                  >
+                    <span className="daily-revenue-date">{shortDate(item.date).slice(0, 5)}</span>
+                    <span className="daily-revenue-track" aria-hidden="true">
+                      <i style={{ width: `${percent}%` }} />
+                    </span>
+                    <span className="daily-revenue-amount">
+                      <strong>{currency(item.share)}</strong>
+                      <small>{currency(item.revenue)} doanh số</small>
+                    </span>
+                  </button>
+                );
+              })}
+          </div>
         </div>
       </div>
     </div>
