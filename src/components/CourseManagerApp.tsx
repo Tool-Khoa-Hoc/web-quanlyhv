@@ -4,6 +4,7 @@ import {
   AlertTriangle,
   ArrowUpRight,
   CheckCircle2,
+  ChevronRight,
   CircleDollarSign,
   Clock3,
   Filter,
@@ -64,6 +65,7 @@ import {
   LEGACY_STORAGE_KEYS,
   matchesQuery,
   normalizePersistedState,
+  resolveEnrollmentGroup,
   STORAGE_KEY,
 } from "@/lib/app-model";
 import {
@@ -1196,8 +1198,11 @@ export function CourseManagerApp({ session }: { session: ClientSession }) {
       return;
     }
 
+    const emailForId = (created.email || groupEmail).trim().toLowerCase();
     const group: CourseGroup = {
-      id: makeId("grp"),
+      // Id suy ra từ email (khớp apiGroupToCourseGroup) để đăng ký vẫn liên kết
+      // đúng nhóm sau khi "Đồng bộ từ Google" hoặc mở trên máy khác.
+      id: `grp-${emailForId}`,
       name: created.name || name,
       groupEmail: created.email || groupEmail,
       subject: form.subject.trim() || name,
@@ -1479,7 +1484,7 @@ export function CourseManagerApp({ session }: { session: ClientSession }) {
               <input
                 value={query}
                 onChange={(event) => setQuery(event.target.value)}
-                placeholder="Tìm Gmail, CTV, môn..."
+                placeholder="Tìm kiếm học viên, CTV, giao dịch, nhóm..."
                 aria-label="Tìm kiếm dữ liệu"
               />
             </div>
@@ -1511,11 +1516,11 @@ export function CourseManagerApp({ session }: { session: ClientSession }) {
                 </button>
                 <button className="button secondary" type="button" onClick={() => openEnrollmentModal("trial")}>
                   <FlaskConical size={17} />
-                  <span>Học thử</span>
+                  <span>Thêm học thử</span>
                 </button>
                 <button className="button primary" type="button" onClick={() => openEnrollmentModal("transaction")}>
                   <Plus size={17} />
-                  <span>Trả phí</span>
+                  <span>Thêm giao dịch</span>
                 </button>
               </>
             ) : null}
@@ -1741,95 +1746,154 @@ function DashboardView({
         <MetricCard label="Anh đáng nhận" value={currency(model.summary.expected)} icon={CircleDollarSign} tone="blue" />
         <MetricCard label="Đã thu" value={currency(model.summary.received)} icon={CheckCircle2} tone="green" />
         <MetricCard label="Còn nợ" value={currency(model.summary.debt)} icon={WalletCards} tone="amber" />
-        <MetricCard label="Tỉ lệ chuyển đổi" value={`${model.summary.conversionRate}%`} icon={FlaskConical} tone="slate" />
       </div>
 
       <div className="dashboard-grid">
-        <section className="panel span-8">
+        <section className="panel span-12">
           <PanelHeader title="Doanh thu theo ngày" action={`${model.summary.unpaidCount} khóa chưa trả`} />
           <TrendChart data={model.trend} />
         </section>
 
-        <section className="panel span-4">
-          <PanelHeader title="Công nợ theo CTV" action="Ưu tiên thu" />
-          <div className="stack-list">
-            {model.ctvDebt.map((row) => (
-              <div className="debt-row" key={row.ctv.id}>
-                <div>
-                  <strong>{row.ctv.name}</strong>
-                  <span>{row.pendingCount} giao dịch chờ</span>
-                </div>
-                <div className="money-cell debt">{currency(row.debt)}</div>
-              </div>
-            ))}
-          </div>
-        </section>
-
         <section className="panel span-8">
           <PanelHeader title="Giao dịch gần đây" action="Bảng giống Excel" />
-          <DataTable>
-            <thead>
-              <tr>
-                <th>Gmail</th>
-                <th>CTV</th>
-                <th>Môn/Combo</th>
-                <th className="numeric">Anh nhận</th>
-                <th>Trạng thái</th>
-                <th></th>
-              </tr>
-            </thead>
-            <tbody>
-              {recentPaid.length ? (
-                recentPaid.map((item) => (
-                  <TransactionRow
-                    key={item.id}
-                    enrollment={item}
-                    state={state}
-                    compact
-                    onTogglePayment={onTogglePayment}
-                  />
-                ))
-              ) : (
-                <EmptyTableRow colSpan={6} label="Chưa có giao dịch trả phí." />
-              )}
-            </tbody>
-          </DataTable>
-        </section>
-
-        <section className="panel span-4">
-          <PanelHeader title="Việc cần xử lý" action="Hôm nay" />
-          <div className="stack-list">
-            {urgentTrials.map((trial) => {
-              const student = model.studentMap.get(trial.studentId);
-              return (
-                <div className="task-row" key={trial.id}>
-                  <Clock3 size={17} />
-                  <div>
-                    <strong>{student?.gmail}</strong>
-                    <span>Hết thử {trial.trialEndDate ? shortDate(trial.trialEndDate) : "chưa đặt"}</span>
-                  </div>
-                </div>
-              );
-            })}
-            {actionableJobs.map((job) => (
-              <div className="task-row" key={job.id}>
-                <RefreshCw size={17} />
-                <div>
-                  <strong>{jobLabel(job)}</strong>
-                  <span>{statusLabel(job.status)}</span>
-                </div>
-                {job.status === "failed" || job.status === "needs_session" ? (
-                  <button className="mini-button" type="button" onClick={() => onRetryJob(job.id)}>
-                    Retry
-                  </button>
-                ) : null}
-              </div>
-            ))}
-            {!urgentTrials.length && !actionableJobs.length ? <EmptyState label="Chưa có việc cần xử lý." /> : null}
+          <div className="desktop-data-table">
+            <DataTable>
+              <thead>
+                <tr>
+                  <th>Gmail</th>
+                  <th>CTV</th>
+                  <th>Môn/Combo</th>
+                  <th className="numeric">Anh nhận</th>
+                  <th>Trạng thái</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody>
+                {recentPaid.length ? (
+                  recentPaid.map((item) => (
+                    <TransactionRow
+                      key={item.id}
+                      enrollment={item}
+                      state={state}
+                      compact
+                      onTogglePayment={onTogglePayment}
+                    />
+                  ))
+                ) : (
+                  <EmptyTableRow colSpan={6} label="Chưa có giao dịch trả phí." />
+                )}
+              </tbody>
+            </DataTable>
+          </div>
+          <div className="mobile-transaction-list">
+            {recentPaid.length ? (
+              recentPaid.map((item) => (
+                <MobileTransactionItem
+                  key={item.id}
+                  enrollment={item}
+                  state={state}
+                  onTogglePayment={onTogglePayment}
+                />
+              ))
+            ) : (
+              <EmptyState label="Chưa có giao dịch trả phí." />
+            )}
           </div>
         </section>
+
+        <div className="dashboard-side-stack span-4">
+          <section className="panel">
+            <PanelHeader title="Công nợ theo CTV" action="Ưu tiên thu" />
+            <div className="stack-list">
+              {model.ctvDebt.map((row) => (
+                <div className="debt-row" key={row.ctv.id}>
+                  <div>
+                    <strong>{row.ctv.name}</strong>
+                    <span>{row.pendingCount} giao dịch chờ</span>
+                  </div>
+                  <div className="money-cell debt">{currency(row.debt)}</div>
+                </div>
+              ))}
+            </div>
+          </section>
+
+          <section className="panel">
+            <PanelHeader title="Jobs mới nhất" action="Hôm nay" />
+            <div className="stack-list">
+              {urgentTrials.map((trial) => {
+                const student = model.studentMap.get(trial.studentId);
+                return (
+                  <div className="task-row" key={trial.id}>
+                    <Clock3 size={17} />
+                    <div>
+                      <strong>{student?.gmail}</strong>
+                      <span>Hết thử {trial.trialEndDate ? shortDate(trial.trialEndDate) : "chưa đặt"}</span>
+                    </div>
+                  </div>
+                );
+              })}
+              {actionableJobs.map((job) => (
+                <div className="task-row" key={job.id}>
+                  <RefreshCw size={17} />
+                  <div>
+                    <strong>{jobLabel(job)}</strong>
+                    <span>{statusLabel(job.status)}</span>
+                  </div>
+                  {job.status === "failed" || job.status === "needs_session" ? (
+                    <button className="mini-button" type="button" onClick={() => onRetryJob(job.id)}>
+                      Thử lại
+                    </button>
+                  ) : null}
+                </div>
+              ))}
+              {!urgentTrials.length && !actionableJobs.length ? <EmptyState label="Chưa có việc cần xử lý." /> : null}
+            </div>
+          </section>
+        </div>
       </div>
     </>
+  );
+}
+
+function MobileTransactionItem({
+  enrollment,
+  state,
+  onTogglePayment,
+}: {
+  enrollment: Enrollment;
+  state: AppState;
+  onTogglePayment: (id: string) => void;
+}) {
+  const student = state.students.find((item) => item.id === enrollment.studentId);
+  const ctv = state.ctvs.find((item) => item.id === enrollment.ctvId);
+  const paid = enrollment.paymentStatus === "received";
+  const avatarSeed = student?.name || student?.gmail || "?";
+
+  return (
+    <div className="mobile-transaction-item">
+      <div className="mobile-transaction-avatar" aria-hidden="true">
+        {avatarSeed.slice(0, 1).toUpperCase()}
+      </div>
+      <div className="mobile-transaction-main">
+        <strong>{student?.gmail}</strong>
+        <span>{ctv ? ctvDisplay(ctv) : student?.name}</span>
+      </div>
+      <div className="mobile-transaction-course">{enrollment.courseType}</div>
+      <div className="mobile-transaction-money">{currency(enrollment.tuition)}</div>
+      <div className="mobile-transaction-status">
+        <button
+          className={paid ? "payment-switch active" : "payment-switch"}
+          type="button"
+          aria-label={paid ? "Đánh dấu chưa thanh toán" : "Đánh dấu đã thanh toán"}
+          aria-pressed={paid}
+          onClick={() => onTogglePayment(enrollment.id)}
+        >
+          <span />
+        </button>
+        <PaymentBadge status={enrollment.paymentStatus} />
+      </div>
+      <ChevronRight className="mobile-transaction-chevron" size={20} aria-hidden="true" />
+    </div>
   );
 }
 
@@ -3404,7 +3468,7 @@ function TransactionRow({
 }) {
   const student = state.students.find((item) => item.id === enrollment.studentId);
   const ctv = state.ctvs.find((item) => item.id === enrollment.ctvId);
-  const group = state.groups.find((item) => item.id === enrollment.groupId);
+  const group = resolveEnrollmentGroup(state, enrollment);
   // Tùy chọn CTV: ưu tiên thành viên domain thật, kèm CTV cục bộ đang gán (nếu chưa có trong list).
   const ctvOptions = (
     domainMembers.length
@@ -3518,7 +3582,7 @@ function EditTransactionModal({
   const ctv = state.ctvs.find((item) => item.id === enrollment.ctvId);
   const paidGroups = state.groups.filter((group) => group.kind !== "trial");
   const groupsForEdit = paidGroups.length ? paidGroups : state.groups;
-  const currentGroup = state.groups.find((group) => group.id === enrollment.groupId);
+  const currentGroup = resolveEnrollmentGroup(state, enrollment);
   const domainOptions = domainMembers.map((member) => ({
     value: member.email,
     label: member.name ? `${member.name} · ${member.email}` : member.email,
@@ -3540,7 +3604,8 @@ function EditTransactionModal({
     studentName: student?.name ?? "",
     ctvEmail: ctv?.email ?? "",
     ctvName: ctv?.name ?? "",
-    groupId: enrollment.groupId,
+    // Dùng nhóm đã phân giải để dropdown chọn đúng nhóm và lưu lại groupId chuẩn.
+    groupId: currentGroup?.id ?? enrollment.groupId,
     courseType: enrollment.courseType || currentGroup?.name || "",
     tuition: String(enrollment.tuition),
     commissionRate: String(Math.round(enrollment.commissionRateSnapshot * 10000) / 100),
@@ -4360,7 +4425,19 @@ function TrendChart({ data }: { data: TrendPoint[] }) {
     ),
   );
 
-  const activeItem = active != null ? visibleData[active] : null;
+  const activeItem = active != null ? visibleData[active] ?? null : null;
+  const latestItem = visibleData[visibleData.length - 1];
+  const selectedItem = activeItem ?? latestItem;
+  const positiveDays = visibleData.filter((item) => item.share > 0).length;
+  const statItems = [
+    { label: "Doanh số", value: currency(totalRevenue), note: "Tổng học phí" },
+    { label: "TB/ngày", value: currency(avgShare), note: `${positiveDays}/${visibleData.length} ngày có thu` },
+    {
+      label: `Cao nhất · ${shortDate(visibleData[bestIndex].date).slice(0, 5)}`,
+      value: currency(visibleData[bestIndex].share),
+      note: "Đỉnh trong kỳ",
+    },
+  ];
 
   const onMove = (event: MouseEvent<HTMLDivElement>) => {
     if (visibleData.length === 1) return setActive(0);
@@ -4375,6 +4452,7 @@ function TrendChart({ data }: { data: TrendPoint[] }) {
         <div className="trend-chart-range">
           <span>{visibleData.length}/{data.length} ngày</span>
           <strong>{rangeLabel}</strong>
+          <small>Thu nhập hiển thị theo đường line</small>
         </div>
         <div className="chart-range-tabs" role="group" aria-label="Khoảng thời gian doanh thu">
           {trendRangeOptions.map((option) => (
@@ -4394,65 +4472,79 @@ function TrendChart({ data }: { data: TrendPoint[] }) {
         </div>
       </div>
 
-      <div className="chart-stats">
-        <div>
-          <span>Anh nhận</span>
+      <div className="chart-overview">
+        <div className="chart-overview-main">
+          <span>Anh nhận trong kỳ</span>
           <strong>{currency(totalShare)}</strong>
+          <small>{positiveDays}/{visibleData.length} ngày phát sinh doanh thu</small>
         </div>
-        <div>
-          <span>Doanh số</span>
-          <strong>{currency(totalRevenue)}</strong>
-        </div>
-        <div>
-          <span>TB/ngày</span>
-          <strong>{currency(avgShare)}</strong>
-        </div>
-        <div>
-          <span>Cao nhất · {shortDate(visibleData[bestIndex].date).slice(0, 5)}</span>
-          <strong>{currency(visibleData[bestIndex].share)}</strong>
+        <div className="chart-stats">
+          {statItems.map((item) => (
+            <div key={item.label}>
+              <span>{item.label}</span>
+              <strong>{item.value}</strong>
+              <small>{item.note}</small>
+            </div>
+          ))}
         </div>
       </div>
 
       <div className="chart-body">
-        <div className="chart-plot" onMouseMove={onMove} onMouseLeave={() => setActive(null)}>
-          <svg viewBox="0 0 100 100" preserveAspectRatio="none" role="img" aria-label="Biểu đồ doanh thu theo ngày">
-            <path d={`M0 ${topY} H100`} className="chart-grid light" />
-            <path d={`M0 ${(topY + baseY) / 2} H100`} className="chart-grid" />
-            <path d={`M0 ${baseY} H100`} className="chart-axis" />
-            <path d={area} className="chart-area" />
-            <polyline points={line} className="chart-line" />
-            {showDots
-              ? visibleData.map((item, index) => (
-                  <circle key={item.date} cx={xAt(index)} cy={yAt(item.share)} r="1.45" className="chart-dot" />
-                ))
-              : null}
+        <div className="chart-plot-card">
+          <div className="chart-plot-toolbar">
+            <span>Đường thu nhập</span>
+            <strong>
+              {activeItem
+                ? `${shortDate(activeItem.date)} · ${currency(activeItem.share)}`
+                : `Đỉnh ${currency(visibleData[bestIndex].share)}`}
+            </strong>
+          </div>
+          <div className="chart-plot" onMouseMove={onMove} onMouseLeave={() => setActive(null)}>
+            <svg viewBox="0 0 100 100" preserveAspectRatio="none" role="img" aria-label="Biểu đồ doanh thu theo ngày">
+              <path d={`M0 ${topY} H100`} className="chart-grid light" />
+              <path d={`M0 ${(topY + baseY) / 2} H100`} className="chart-grid" />
+              <path d={`M0 ${baseY} H100`} className="chart-axis" />
+              <path d={area} className="chart-area" />
+              <polyline points={line} className="chart-line" />
+              {showDots
+                ? visibleData.map((item, index) => (
+                    <circle key={item.date} cx={xAt(index)} cy={yAt(item.share)} r="1.45" className="chart-dot" />
+                  ))
+                : null}
+              {activeItem ? (
+                <>
+                  <path d={`M${xAt(active as number)} ${topY} V${baseY}`} className="chart-guide" />
+                  <circle cx={xAt(active as number)} cy={yAt(activeItem.share)} r="2.25" className="chart-dot active" />
+                </>
+              ) : null}
+            </svg>
             {activeItem ? (
-              <>
-                <path d={`M${xAt(active as number)} ${topY} V${baseY}`} className="chart-guide" />
-                <circle cx={xAt(active as number)} cy={yAt(activeItem.share)} r="2.25" className="chart-dot active" />
-              </>
+              <div
+                className="chart-tooltip"
+                style={{ left: `${xAt(active as number)}%` }}
+                data-flip={xAt(active as number) > 65 ? "left" : xAt(active as number) < 35 ? "right" : "center"}
+              >
+                <span>{shortDate(activeItem.date)}</span>
+                <strong>{currency(activeItem.share)}</strong>
+                <small>{currency(activeItem.revenue)} doanh số</small>
+              </div>
             ) : null}
-          </svg>
-          {activeItem ? (
-            <div
-              className="chart-tooltip"
-              style={{ left: `${xAt(active as number)}%` }}
-              data-flip={xAt(active as number) > 65 ? "left" : xAt(active as number) < 35 ? "right" : "center"}
-            >
-              <span>{shortDate(activeItem.date)}</span>
-              <strong>{currency(activeItem.share)}</strong>
+            <div className="chart-xlabels">
+              {labelIndexes.map((index) => (
+                <span key={index} style={{ left: `${xAt(index)}%` }}>
+                  {shortDate(visibleData[index].date).slice(0, 5)}
+                </span>
+              ))}
             </div>
-          ) : null}
-          <div className="chart-xlabels">
-            {labelIndexes.map((index) => (
-              <span key={index} style={{ left: `${xAt(index)}%` }}>
-                {shortDate(visibleData[index].date).slice(0, 5)}
-              </span>
-            ))}
           </div>
         </div>
 
-        <div className="daily-revenue-panel">
+        <aside className="daily-revenue-panel" aria-label="Danh sách doanh thu theo ngày">
+          <div className="daily-revenue-summary">
+            <span>{activeItem ? "Ngày đang xem" : "Ngày mới nhất"}</span>
+            <strong>{currency(selectedItem.share)}</strong>
+            <small>{shortDate(selectedItem.date)} · {currency(selectedItem.revenue)} doanh số</small>
+          </div>
           <div className="daily-revenue-head">
             <span>Ngày</span>
             <span>Tỷ trọng</span>
@@ -4483,10 +4575,10 @@ function TrendChart({ data }: { data: TrendPoint[] }) {
                       <small>{currency(item.revenue)} doanh số</small>
                     </span>
                   </button>
-                );
-              })}
+                  );
+                })}
           </div>
-        </div>
+        </aside>
       </div>
     </div>
   );

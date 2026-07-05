@@ -1,13 +1,13 @@
 :root {
-  --bg: #f4f6fb;
+  --bg: #f8fafc;
   --surface: #ffffff;
-  --surface-2: #f1f5f9;
-  --text: #0f172a;
-  --muted: #64748b;
-  --border: #e3e9f2;
-  --border-strong: #d3dcea;
-  --blue: #2563eb;
-  --blue-strong: #1d4ed8;
+  --surface-2: #f7f9fc;
+  --text: #111827;
+  --muted: #6b7280;
+  --border: #e5e7eb;
+  --border-strong: #d6dbe4;
+  --blue: #1f6feb;
+  --blue-strong: #0f5bd7;
   --blue-soft: #eff4ff;
   --green: #16a34a;
   --green-soft: #ecfdf3;
@@ -16,17 +16,17 @@
   --red: #dc2626;
   --red-soft: #fef2f2;
   /* Gradient nhấn dùng cho brand, nút chính, icon */
-  --grad-blue: linear-gradient(135deg, #3b82f6 0%, #2563eb 55%, #1d4ed8 100%);
-  --grad-surface: linear-gradient(180deg, #ffffff 0%, #fbfcfe 100%);
+  --grad-blue: linear-gradient(135deg, #2f7df6 0%, #1f6feb 58%, #1557d6 100%);
+  --grad-surface: #ffffff;
   /* Hệ đổ bóng nhiều lớp cho chiều sâu mềm mại */
-  --shadow-xs: 0 1px 2px rgba(15, 23, 42, 0.04);
-  --shadow-sm: 0 1px 2px rgba(15, 23, 42, 0.05), 0 1px 1px rgba(15, 23, 42, 0.03);
-  --shadow-md: 0 6px 16px rgba(15, 23, 42, 0.07), 0 2px 6px rgba(15, 23, 42, 0.05);
-  --shadow-lg: 0 18px 42px rgba(15, 23, 42, 0.12), 0 6px 14px rgba(15, 23, 42, 0.06);
+  --shadow-xs: 0 1px 2px rgba(17, 24, 39, 0.04);
+  --shadow-sm: 0 1px 3px rgba(17, 24, 39, 0.05);
+  --shadow-md: 0 10px 28px rgba(17, 24, 39, 0.08);
+  --shadow-lg: 0 22px 56px rgba(17, 24, 39, 0.12);
   --shadow: var(--shadow-lg);
-  --ring: 0 0 0 3px rgba(37, 99, 235, 0.18);
-  --radius: 14px;
-  --radius-sm: 10px;
+  --ring: 0 0 0 3px rgba(31, 111, 235, 0.18);
+  --radius: 10px;
+  --radius-sm: 8px;
   color-scheme: light;
 }
 
@@ -41,10 +41,7 @@ body {
 
 body {
   margin: 0;
-  background:
-    radial-gradient(1100px 520px at 100% -8%, #eef3ff 0%, rgba(238, 243, 255, 0) 55%),
-    radial-gradient(900px 480px at -10% 0%, #f0fbf6 0%, rgba(240, 251, 246, 0) 50%),
-    var(--bg);
+  background: var(--bg);
   background-attachment: fixed;
   color: var(--text);
   font-family:
@@ -98,7 +95,7 @@ button {
 .app-shell {
   min-height: 100vh;
   display: grid;
-  grid-template-columns: 244px minmax(0, 1fr);
+  grid-template-columns: 226px minmax(0, 1fr);
 }
 
 .sidebar {
@@ -108,8 +105,8 @@ button {
   display: flex;
   flex-direction: column;
   gap: 18px;
-  padding: 22px 16px;
-  background: linear-gradient(180deg, #ffffff 0%, #fbfcff 100%);
+  padding: 20px 14px;
+  background: #ffffff;
   border-right: 1px solid var(--border);
 }
 
@@ -122,12 +119,12 @@ button {
 
 .brand-mark {
   display: grid;
-  width: 44px;
-  height: 44px;
+  width: 38px;
+  height: 38px;
   flex: 0 0 auto;
   place-items: center;
   overflow: hidden;
-  border-radius: 11px;
+  border-radius: 9px;
   border: 1px solid var(--border);
   background: #ffffff;
   padding: 3px;
@@ -166,10 +163,10 @@ button {
   display: flex;
   align-items: center;
   gap: 10px;
-  min-height: 42px;
+  min-height: 40px;
   width: 100%;
   border: 0;
-  border-radius: 10px;
+  border-radius: 8px;
   padding: 0 12px;
   background: transparent;
   color: #475569;
@@ -232,7 +229,7 @@ button {
 .main {
   min-width: 0;
   overflow-x: hidden;
-  padding: 20px 24px 48px;
+  padding: 14px 18px 40px;
 }
 
 .topbar {
@@ -244,7 +241,7 @@ button {
   justify-content: space-between;
   gap: 16px;
   min-width: 0;
-  padding: 10px 0 18px;
+  padding: 0 0 14px;
   background: rgba(248, 250, 252, 0.94);
   backdrop-filter: blur(10px);
 }
@@ -257,7 +254,7 @@ button {
   height: 42px;
   padding: 0 13px;
   border: 1px solid var(--border-strong);
-  border-radius: 11px;
+  border-radius: 8px;
   background: #ffffff;
   color: var(--muted);
   box-shadow: var(--shadow-xs);
@@ -458,7 +455,7 @@ button {
 
 .metric-grid {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
   gap: 12px;
   min-width: 0;
 }
@@ -473,11 +470,12 @@ button {
 .metric-card {
   position: relative;
   display: grid;
-  grid-template-columns: auto 1fr;
+  grid-template-columns: auto minmax(0, 1fr);
+  grid-template-rows: auto auto;
   align-items: center;
   gap: 8px 11px;
-  padding: 16px;
-  min-height: 118px;
+  padding: 17px 18px;
+  min-height: 112px;
   box-shadow: var(--shadow-sm);
   transition:
     transform 180ms ease,
@@ -498,7 +496,7 @@ button {
 }
 
 .metric-card strong {
-  grid-column: 1 / -1;
+  grid-column: 2;
   font-size: clamp(21px, 2.2vw, 29px);
   line-height: 1.05;
   font-variant-numeric: tabular-nums;
@@ -506,22 +504,16 @@ button {
 
 .metric-icon {
   display: grid;
+  grid-row: 1 / 3;
   place-items: center;
-  width: 36px;
-  height: 36px;
-  border-radius: 10px;
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
   box-shadow: inset 0 0 0 1px rgba(15, 23, 42, 0.04);
 }
 
 .metric-card::after {
-  content: "";
-  position: absolute;
-  left: 16px;
-  right: 16px;
-  top: 0;
-  height: 3px;
-  border-radius: 0 0 3px 3px;
-  opacity: 0.85;
+  display: none;
 }
 
 .metric-card.blue::after {
@@ -595,8 +587,12 @@ button {
   grid-column: span 8;
 }
 
+.span-12 {
+  grid-column: 1 / -1;
+}
+
 .panel {
-  padding: 18px;
+  padding: 16px;
   box-shadow: var(--shadow-sm);
   min-width: 0;
 }
@@ -625,53 +621,74 @@ button {
   font-weight: 700;
 }
 
+.dashboard-side-stack {
+  display: grid;
+  gap: 12px;
+  align-content: start;
+}
+
+.mobile-transaction-list {
+  display: none;
+}
+
+.desktop-data-table {
+  display: block;
+}
+
 .trend-chart {
   display: grid;
-  gap: 14px;
+  container-type: inline-size;
+  gap: 16px;
 }
 
 .trend-chart-header {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   justify-content: space-between;
-  gap: 12px;
+  gap: 14px;
 }
 
 .trend-chart-range {
   display: grid;
-  gap: 3px;
+  gap: 4px;
   min-width: 0;
 }
 
 .trend-chart-range span,
 .daily-revenue-head {
   color: var(--muted);
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 760;
 }
 
 .trend-chart-range strong {
-  font-size: 13px;
+  font-size: 15px;
   font-variant-numeric: tabular-nums;
+}
+
+.trend-chart-range small {
+  color: #7c8798;
+  font-size: 12px;
+  font-weight: 650;
 }
 
 .chart-range-tabs {
   display: inline-flex;
   flex: 0 0 auto;
-  gap: 3px;
-  padding: 3px;
+  gap: 4px;
+  padding: 4px;
   overflow-x: auto;
   border: 1px solid var(--border);
   border-radius: 8px;
-  background: #f8fafc;
+  background: #f4f7fb;
 }
 
 .chart-range-tabs button {
-  min-height: 28px;
+  min-height: 32px;
   white-space: nowrap;
   border: 0;
   border-radius: 6px;
-  padding: 0 9px;
+  padding: 0 12px;
   background: transparent;
   color: var(--muted);
   font-size: 12px;
@@ -685,50 +702,116 @@ button {
 .chart-range-tabs button.active {
   background: #ffffff;
   color: var(--blue);
-  box-shadow: var(--shadow-xs);
+  box-shadow: 0 1px 2px rgba(31, 111, 235, 0.08), 0 0 0 1px rgba(31, 111, 235, 0.08);
 }
 
 .chart-range-tabs button:hover {
   color: var(--blue-strong);
 }
 
+.chart-overview {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 10px;
+}
+
+.chart-overview-main,
+.chart-stats div {
+  min-width: 0;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  background: #ffffff;
+}
+
+.chart-overview-main {
+  position: relative;
+  display: grid;
+  gap: 5px;
+  overflow: hidden;
+  padding: 14px 16px;
+  box-shadow: 0 10px 24px rgba(31, 111, 235, 0.08);
+}
+
+.chart-overview-main::before {
+  content: "";
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 4px;
+  background: linear-gradient(180deg, var(--blue), #0ea5e9);
+}
+
+.chart-overview-main span,
+.chart-stats span {
+  min-width: 0;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 720;
+  overflow-wrap: anywhere;
+}
+
+.chart-overview-main strong {
+  color: #071936;
+  font-size: clamp(22px, 3vw, 31px);
+  line-height: 1.05;
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+}
+
+.chart-overview-main small,
+.chart-stats small {
+  min-width: 0;
+  color: #7c8798;
+  font-size: 11px;
+  font-weight: 650;
+  overflow-wrap: anywhere;
+}
+
 .chart-stats {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 8px;
 }
 
 .chart-stats div {
   display: grid;
-  gap: 3px;
-  min-width: 0;
-  padding: 10px 11px;
-  border: 1px solid #e8eef7;
-  border-radius: 8px;
-  background: linear-gradient(180deg, #fbfdff 0%, #f6f9fd 100%);
-}
-
-.chart-stats span {
-  min-width: 0;
-  color: var(--muted);
-  font-size: 11px;
-  font-weight: 720;
-  overflow-wrap: anywhere;
+  gap: 4px;
+  padding: 12px 13px;
+  transition:
+    border-color 160ms ease,
+    box-shadow 160ms ease,
+    transform 160ms ease;
 }
 
 .chart-stats strong {
   min-width: 0;
-  font-size: 14px;
+  color: #0f172a;
+  font-size: 15px;
   line-height: 1.15;
   font-variant-numeric: tabular-nums;
   overflow-wrap: anywhere;
 }
 
+.chart-stats div:hover {
+  border-color: #c9d9f3;
+  box-shadow: 0 10px 22px rgba(15, 23, 42, 0.07);
+  transform: translateY(-1px);
+}
+
 .chart-body {
   display: grid;
-  grid-template-columns: minmax(0, 1.4fr) minmax(230px, 0.86fr);
+  grid-template-columns: minmax(0, 1fr);
   gap: 12px;
   align-items: stretch;
+}
+
+@container (min-width: 820px) {
+  .chart-overview {
+    grid-template-columns: minmax(220px, 0.86fr) minmax(0, 1.5fr);
+  }
+
+  .chart-body {
+    grid-template-columns: minmax(0, 1.62fr) minmax(270px, 0.82fr);
+  }
 }
 
 .bars-chart {
@@ -890,25 +973,59 @@ button {
   grid-column: 1 / -1;
 }
 
+.chart-plot-card {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  min-width: 0;
+  overflow: hidden;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  background: #ffffff;
+}
+
+.chart-plot-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 12px 14px 0;
+}
+
+.chart-plot-toolbar span {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 760;
+}
+
+.chart-plot-toolbar strong {
+  min-width: 0;
+  color: #0f172a;
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+  text-align: right;
+}
+
 .chart-plot {
   position: relative;
   min-width: 0;
+  padding: 4px 0 0;
 }
 
 .trend-chart svg {
   display: block;
   width: 100%;
-  height: 268px;
-  border-radius: 8px;
+  height: 300px;
+  border-radius: 0;
   background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.42) 0%, rgba(255, 255, 255, 0) 100%),
-    #f8fafc;
+    linear-gradient(180deg, rgba(255, 255, 255, 0.78) 0%, rgba(255, 255, 255, 0) 28%),
+    linear-gradient(180deg, #f9fbff 0%, #f3f7fc 100%);
 }
 
 .chart-axis,
 .chart-grid {
   fill: none;
-  stroke: #dbe4ee;
+  stroke: #d8e2ee;
   stroke-width: 1;
   vector-effect: non-scaling-stroke;
 }
@@ -924,15 +1041,16 @@ button {
 .chart-line {
   fill: none;
   stroke: var(--blue);
-  stroke-width: 2.2;
+  stroke-width: 2.5;
   stroke-linecap: round;
   stroke-linejoin: round;
   vector-effect: non-scaling-stroke;
+  filter: drop-shadow(0 8px 12px rgba(31, 111, 235, 0.16));
 }
 
 .chart-area {
   fill: var(--blue);
-  opacity: 0.1;
+  opacity: 0.11;
   stroke: none;
 }
 
@@ -947,27 +1065,29 @@ button {
 .chart-dot {
   fill: #ffffff;
   stroke: var(--blue);
-  stroke-width: 1.6;
+  stroke-width: 1.8;
   vector-effect: non-scaling-stroke;
 }
 
 .chart-dot.active {
   fill: var(--blue);
+  stroke: #ffffff;
+  stroke-width: 2.2;
 }
 
 .chart-tooltip {
   position: absolute;
-  top: 6px;
+  top: 18px;
   transform: translateX(-50%);
   display: grid;
   gap: 1px;
-  padding: 5px 9px;
+  padding: 7px 10px;
   border-radius: 8px;
-  background: #0f172a;
+  background: #071936;
   color: #ffffff;
   white-space: nowrap;
   pointer-events: none;
-  box-shadow: 0 6px 16px rgba(15, 23, 42, 0.2);
+  box-shadow: 0 10px 24px rgba(7, 25, 54, 0.22);
 }
 
 .chart-tooltip[data-flip="left"] {
@@ -988,9 +1108,15 @@ button {
   font-variant-numeric: tabular-nums;
 }
 
+.chart-tooltip small {
+  color: rgba(255, 255, 255, 0.72);
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+}
+
 .chart-xlabels {
   position: absolute;
-  inset: auto 0 4px 0;
+  inset: auto 14px 9px 14px;
   height: 0;
   pointer-events: none;
 }
@@ -1014,20 +1140,51 @@ button {
 
 .daily-revenue-panel {
   display: grid;
-  grid-template-rows: auto minmax(0, 1fr);
+  grid-template-rows: auto auto minmax(0, 1fr);
   min-width: 0;
   overflow: hidden;
-  border: 1px solid #e8eef7;
+  border: 1px solid #e2e8f0;
   border-radius: 8px;
-  background: #fbfdff;
+  background: #ffffff;
+}
+
+.daily-revenue-summary {
+  display: grid;
+  gap: 4px;
+  padding: 14px;
+  border-bottom: 1px solid #e8eef7;
+  background:
+    linear-gradient(135deg, rgba(239, 246, 255, 0.92) 0%, rgba(255, 255, 255, 0.96) 70%),
+    #ffffff;
+}
+
+.daily-revenue-summary span {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 760;
+}
+
+.daily-revenue-summary strong {
+  color: #071936;
+  font-size: 22px;
+  line-height: 1.05;
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+}
+
+.daily-revenue-summary small {
+  color: #64748b;
+  font-size: 12px;
+  font-weight: 650;
+  font-variant-numeric: tabular-nums;
 }
 
 .daily-revenue-head {
   display: grid;
-  grid-template-columns: 54px minmax(88px, 1fr) minmax(104px, 1.05fr);
-  gap: 9px;
+  grid-template-columns: 52px minmax(84px, 1fr) minmax(104px, 1.02fr);
+  gap: 10px;
   align-items: center;
-  padding: 9px 10px;
+  padding: 9px 12px;
   border-bottom: 1px solid var(--border);
   background: #f8fafc;
 }
@@ -1040,23 +1197,23 @@ button {
 .daily-revenue-list {
   display: grid;
   gap: 2px;
-  max-height: 225px;
+  max-height: 292px;
   overflow-y: auto;
-  padding: 5px;
+  padding: 6px;
   scrollbar-width: thin;
   scrollbar-color: #cbd5e1 transparent;
 }
 
 .daily-revenue-row {
   display: grid;
-  grid-template-columns: 54px minmax(88px, 1fr) minmax(104px, 1.05fr);
-  gap: 9px;
+  grid-template-columns: 52px minmax(84px, 1fr) minmax(104px, 1.02fr);
+  gap: 10px;
   align-items: center;
-  min-height: 44px;
+  min-height: 50px;
   width: 100%;
   border: 1px solid transparent;
   border-radius: 7px;
-  padding: 7px 8px;
+  padding: 8px 9px;
   background: transparent;
   color: inherit;
   text-align: left;
@@ -1073,6 +1230,11 @@ button {
   transform: translateY(-1px);
 }
 
+.daily-revenue-row:focus-visible {
+  outline: 2px solid rgba(31, 111, 235, 0.34);
+  outline-offset: 1px;
+}
+
 .daily-revenue-date,
 .daily-revenue-amount strong {
   font-variant-numeric: tabular-nums;
@@ -1080,16 +1242,16 @@ button {
 
 .daily-revenue-date {
   color: #334155;
-  font-size: 12px;
+  font-size: 13px;
   font-weight: 760;
 }
 
 .daily-revenue-track {
   display: block;
-  height: 8px;
+  height: 9px;
   overflow: hidden;
   border-radius: 999px;
-  background: #e8eef7;
+  background: #e2e8f0;
 }
 
 .daily-revenue-track i {
@@ -1097,7 +1259,7 @@ button {
   height: 100%;
   min-width: 0;
   border-radius: inherit;
-  background: linear-gradient(90deg, #38bdf8, var(--blue));
+  background: linear-gradient(90deg, var(--blue), #38bdf8);
 }
 
 .daily-revenue-amount {
@@ -1107,7 +1269,7 @@ button {
 }
 
 .daily-revenue-amount strong {
-  font-size: 12px;
+  font-size: 13px;
 }
 
 .daily-revenue-amount small {
@@ -1263,6 +1425,105 @@ button {
   border: 0;
   background: transparent;
   padding: 0;
+}
+
+.mobile-transaction-item {
+  display: grid;
+  grid-template-columns: 42px minmax(0, 1.35fr) minmax(72px, 0.75fr) minmax(76px, 0.7fr) minmax(112px, auto) 20px;
+  align-items: center;
+  gap: 10px;
+  min-height: 78px;
+  padding: 12px 14px;
+  border-bottom: 1px solid #edf2f7;
+  background: #ffffff;
+}
+
+.mobile-transaction-item:last-child {
+  border-bottom: 0;
+}
+
+.mobile-transaction-avatar {
+  display: grid;
+  width: 38px;
+  height: 38px;
+  place-items: center;
+  border-radius: 50%;
+  background: var(--grad-blue);
+  color: #ffffff;
+  font-weight: 800;
+}
+
+.mobile-transaction-main,
+.mobile-transaction-status {
+  min-width: 0;
+}
+
+.mobile-transaction-main strong,
+.mobile-transaction-main span {
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mobile-transaction-main span {
+  margin-top: 4px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.mobile-transaction-course,
+.mobile-transaction-money {
+  min-width: 0;
+  color: #1f2937;
+  font-weight: 650;
+  overflow-wrap: anywhere;
+}
+
+.mobile-transaction-money {
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+.mobile-transaction-status {
+  display: grid;
+  justify-items: end;
+  gap: 7px;
+}
+
+.payment-switch {
+  position: relative;
+  width: 42px;
+  height: 24px;
+  border: 0;
+  border-radius: 999px;
+  padding: 0;
+  background: #d7dce5;
+}
+
+.payment-switch span {
+  position: absolute;
+  left: 3px;
+  top: 3px;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: #ffffff;
+  box-shadow: 0 1px 4px rgba(17, 24, 39, 0.22);
+  transition: transform 160ms ease;
+}
+
+.payment-switch.active {
+  background: var(--blue);
+}
+
+.payment-switch.active span {
+  transform: translateX(18px);
+}
+
+.mobile-transaction-chevron {
+  color: #94a3b8;
 }
 
 .status-badge {
@@ -1985,7 +2246,7 @@ button {
   }
 
   .main {
-    padding: 14px 14px calc(86px + env(safe-area-inset-bottom));
+    padding: 16px 14px calc(92px + env(safe-area-inset-bottom));
   }
 
   .no-mobile-nav .main {
@@ -1995,6 +2256,10 @@ button {
   .topbar {
     align-items: stretch;
     flex-direction: column;
+    position: static;
+    padding-bottom: 14px;
+    background: transparent;
+    backdrop-filter: none;
   }
 
   .topbar-actions {
@@ -2033,7 +2298,7 @@ button {
   }
 
   .metric-card {
-    min-width: 210px;
+    min-width: 208px;
     scroll-snap-align: start;
   }
 
@@ -2044,7 +2309,8 @@ button {
   .span-4,
   .span-5,
   .span-7,
-  .span-8 {
+  .span-8,
+  .span-12 {
     grid-column: auto;
   }
 
@@ -2059,7 +2325,7 @@ button {
     gap: 4px;
     padding: 6px;
     border: 1px solid var(--border);
-    border-radius: 8px;
+    border-radius: 10px;
     background: rgba(255, 255, 255, 0.96);
     box-shadow: 0 18px 48px rgba(15, 23, 42, 0.16);
     backdrop-filter: blur(12px);
@@ -2112,8 +2378,28 @@ button {
     font-size: 13px;
   }
 
+  .search-box {
+    height: 42px;
+  }
+
   .topbar-actions {
-    grid-template-columns: 40px minmax(0, 1fr) minmax(0, 1fr);
+    display: grid;
+    grid-template-columns: 44px minmax(0, 1fr) minmax(0, 1fr);
+  }
+
+  .topbar-actions .mobile-cashflow-button,
+  .topbar-actions .button.ghost {
+    display: none;
+  }
+
+  .topbar-actions .button {
+    min-height: 48px;
+    font-size: 15px;
+  }
+
+  .topbar-actions .icon-button {
+    width: 44px;
+    height: 48px;
   }
 
   .alert-strip {
@@ -2126,16 +2412,119 @@ button {
     padding: 13px;
   }
 
+  .metric-grid {
+    gap: 10px;
+  }
+
+  .metric-card {
+    min-width: 184px;
+    min-height: 118px;
+    grid-template-columns: 1fr auto;
+    grid-template-rows: auto auto auto;
+  }
+
+  .metric-card span {
+    grid-column: 1 / -1;
+  }
+
+  .metric-card strong {
+    grid-column: 1 / -1;
+    color: var(--blue);
+  }
+
+  .metric-card.green strong {
+    color: var(--green);
+  }
+
+  .metric-card.amber strong {
+    color: var(--amber);
+  }
+
+  .metric-card.slate strong {
+    color: var(--green);
+  }
+
+  .metric-icon {
+    grid-column: 1 / -1;
+    grid-row: auto;
+    width: 40px;
+    height: 40px;
+    margin-top: 5px;
+    justify-self: center;
+  }
+
+  .desktop-data-table {
+    display: none;
+  }
+
+  .mobile-transaction-list {
+    display: block;
+    overflow: hidden;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    background: #ffffff;
+  }
+
+  .mobile-transaction-item {
+    grid-template-columns: 42px minmax(0, 1fr) auto 18px;
+    grid-template-areas:
+      "avatar main money chev"
+      "avatar main status chev";
+    gap: 4px 10px;
+    min-height: 86px;
+    padding: 12px 10px;
+  }
+
+  .mobile-transaction-avatar {
+    grid-area: avatar;
+  }
+
+  .mobile-transaction-main {
+    grid-area: main;
+  }
+
+  .mobile-transaction-course {
+    display: none;
+  }
+
+  .mobile-transaction-money {
+    grid-area: money;
+    font-size: 14px;
+  }
+
+  .mobile-transaction-status {
+    grid-area: status;
+  }
+
+  .mobile-transaction-chevron {
+    grid-area: chev;
+  }
+
+  .mobile-transaction-status .status-badge {
+    min-height: 22px;
+    font-size: 11px;
+  }
+
+  .payment-switch {
+    width: 40px;
+    height: 23px;
+  }
+
   .trend-chart svg {
     height: 190px;
   }
 
   .trend-chart-header {
     flex-direction: column;
+    align-items: stretch;
   }
 
   .chart-range-tabs {
     width: 100%;
+  }
+
+  .chart-range-tabs button {
+    flex: 1 0 auto;
   }
 
   .chart-stats {
