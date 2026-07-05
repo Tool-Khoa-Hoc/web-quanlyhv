@@ -800,7 +800,7 @@ button {
 .chart-body {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
-  gap: 12px;
+  gap: 14px;
   align-items: stretch;
 }
 
@@ -810,7 +810,7 @@ button {
   }
 
   .chart-body {
-    grid-template-columns: minmax(0, 1.62fr) minmax(270px, 0.82fr);
+    grid-template-columns: minmax(0, 1fr);
   }
 }
 
@@ -978,29 +978,36 @@ button {
   grid-template-rows: auto minmax(0, 1fr);
   min-width: 0;
   overflow: hidden;
-  border: 1px solid #e2e8f0;
-  border-radius: 8px;
+  border: 1px solid #d9d9d9;
+  border-radius: 7px;
   background: #ffffff;
 }
 
 .chart-plot-toolbar {
+  position: relative;
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  justify-content: center;
   gap: 10px;
-  padding: 12px 14px 0;
+  min-height: 48px;
+  padding: 16px 20px 0;
 }
 
 .chart-plot-toolbar span {
-  color: var(--muted);
-  font-size: 12px;
-  font-weight: 760;
+  color: #4a4a4a;
+  font-size: 18px;
+  font-weight: 700;
 }
 
 .chart-plot-toolbar strong {
+  position: absolute;
+  top: 19px;
+  right: 20px;
   min-width: 0;
-  color: #0f172a;
-  font-size: 13px;
+  max-width: min(34%, 280px);
+  color: #555555;
+  font-size: 12px;
+  font-weight: 650;
   font-variant-numeric: tabular-nums;
   overflow-wrap: anywhere;
   text-align: right;
@@ -1009,17 +1016,15 @@ button {
 .chart-plot {
   position: relative;
   min-width: 0;
-  padding: 4px 0 0;
+  padding: 0 0 38px;
 }
 
 .trend-chart svg {
   display: block;
   width: 100%;
-  height: 300px;
+  height: 318px;
   border-radius: 0;
-  background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.78) 0%, rgba(255, 255, 255, 0) 28%),
-    linear-gradient(180deg, #f9fbff 0%, #f3f7fc 100%);
+  background: #ffffff;
 }
 
 .chart-axis,
@@ -1040,17 +1045,18 @@ button {
 
 .chart-line {
   fill: none;
-  stroke: var(--blue);
-  stroke-width: 2.5;
+  stroke: #5b9bd5;
+  stroke-width: 3;
   stroke-linecap: round;
   stroke-linejoin: round;
   vector-effect: non-scaling-stroke;
-  filter: drop-shadow(0 8px 12px rgba(31, 111, 235, 0.16));
+  filter: drop-shadow(0 3px 3px rgba(0, 0, 0, 0.2));
 }
 
 .chart-area {
-  fill: var(--blue);
-  opacity: 0.11;
+  display: none;
+  fill: transparent;
+  opacity: 0;
   stroke: none;
 }
 
@@ -1064,15 +1070,52 @@ button {
 
 .chart-dot {
   fill: #ffffff;
-  stroke: var(--blue);
+  stroke: #5b9bd5;
   stroke-width: 1.8;
   vector-effect: non-scaling-stroke;
 }
 
 .chart-dot.active {
-  fill: var(--blue);
+  fill: #5b9bd5;
   stroke: #ffffff;
   stroke-width: 2.2;
+}
+
+.trend-chart .chart-axis {
+  stroke: #d9d9d9;
+}
+
+.trend-chart .chart-grid {
+  stroke: #eeeeee;
+  stroke-dasharray: none;
+  opacity: 0.66;
+}
+
+.trend-chart .chart-grid.light {
+  opacity: 0.4;
+}
+
+.chart-value-labels {
+  position: absolute;
+  inset: 0 0 38px 0;
+  pointer-events: none;
+}
+
+.chart-value-label {
+  position: absolute;
+  transform: translate(-50%, calc(-100% - 5px));
+  color: #333333;
+  font-size: 11px;
+  font-weight: 520;
+  line-height: 1;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+  text-shadow: 0 1px 0 #ffffff;
+}
+
+.chart-value-label.active {
+  color: #1f4e79;
+  font-weight: 760;
 }
 
 .chart-tooltip {
@@ -1116,8 +1159,8 @@ button {
 
 .chart-xlabels {
   position: absolute;
-  inset: auto 14px 9px 14px;
-  height: 0;
+  inset: auto 0 12px 0;
+  height: 28px;
   pointer-events: none;
 }
 
@@ -1125,8 +1168,12 @@ button {
   position: absolute;
   transform: translateX(-50%);
   bottom: 0;
-  color: var(--muted);
+  max-width: 72px;
+  color: #4a4a4a;
   font-size: 11px;
+  line-height: 1.18;
+  text-align: center;
+  overflow-wrap: anywhere;
   font-variant-numeric: tabular-nums;
 }
 
@@ -2511,7 +2558,38 @@ button {
   }
 
   .trend-chart svg {
-    height: 190px;
+    height: 230px;
+  }
+
+  .chart-plot-toolbar {
+    display: grid;
+    justify-items: center;
+    min-height: 70px;
+    padding: 14px 14px 0;
+  }
+
+  .chart-plot-toolbar strong {
+    position: static;
+    max-width: 100%;
+    text-align: center;
+  }
+
+  .chart-value-label:not(.active) {
+    display: none;
+  }
+
+  .chart-xlabels span {
+    max-width: 52px;
+    font-size: 10px;
+  }
+
+  .chart-xlabels span:nth-child(even),
+  .chart-xlabels span:nth-last-child(2) {
+    display: none;
+  }
+
+  .chart-xlabels span:last-child {
+    display: block;
   }
 
   .trend-chart-header {

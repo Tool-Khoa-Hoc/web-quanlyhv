@@ -4386,6 +4386,21 @@ const trendRangeOptions: Array<{ value: TrendRange; label: string }> = [
   { value: "all", label: "Tất cả" },
 ];
 
+function compactMoney(value: number) {
+  const abs = Math.abs(value);
+  const sign = value < 0 ? "-" : "";
+  const format = (amount: number, digits = 1) =>
+    amount.toLocaleString("vi-VN", {
+      maximumFractionDigits: digits,
+      minimumFractionDigits: amount < 10 && amount % 1 !== 0 ? 1 : 0,
+    });
+
+  if (abs >= 1_000_000_000) return `${sign}${format(abs / 1_000_000_000)} tỷ`;
+  if (abs >= 1_000_000) return `${sign}${format(abs / 1_000_000)}tr`;
+  if (abs >= 1_000) return `${sign}${format(abs / 1_000)}k`;
+  return `${sign}${format(abs, 0)}đ`;
+}
+
 function TrendChart({ data }: { data: TrendPoint[] }) {
   const [active, setActive] = useState<number | null>(null);
   const [range, setRange] = useState<TrendRange>(30);
@@ -4395,18 +4410,16 @@ function TrendChart({ data }: { data: TrendPoint[] }) {
   }
 
   const visibleData = range === "all" ? data : data.slice(-range);
-  const padX = 1.5;
+  const padX = 8;
   const spanX = 100 - padX * 2;
-  const topY = 12;
-  const baseY = 92;
+  const topY = 18;
+  const baseY = 76;
   const max = Math.max(...visibleData.map((item) => item.share), 1);
   const xAt = (index: number) =>
     visibleData.length === 1 ? 50 : padX + (index / (visibleData.length - 1)) * spanX;
   const yAt = (value: number) => baseY - (value / max) * (baseY - topY);
 
   const line = visibleData.map((item, index) => `${xAt(index)},${yAt(item.share)}`).join(" ");
-  const area = `M${xAt(0)},${baseY} L${line} L${xAt(visibleData.length - 1)},${baseY} Z`;
-  const showDots = visibleData.length <= 45;
 
   const totalShare = visibleData.reduce((sum, item) => sum + item.share, 0);
   const totalRevenue = visibleData.reduce((sum, item) => sum + item.revenue, 0);
@@ -4416,7 +4429,7 @@ function TrendChart({ data }: { data: TrendPoint[] }) {
   const lastDate = shortDate(visibleData[visibleData.length - 1].date).slice(0, 5);
   const rangeLabel = visibleData.length === 1 ? firstDate : `${firstDate} - ${lastDate}`;
 
-  const labelCount = visibleData.length <= 2 ? visibleData.length : visibleData.length <= 45 ? 4 : visibleData.length <= 120 ? 5 : 6;
+  const labelCount = visibleData.length <= 12 ? visibleData.length : visibleData.length <= 45 ? 6 : visibleData.length <= 120 ? 5 : 6;
   const labelIndexes = Array.from(
     new Set(
       Array.from({ length: labelCount }, (_, index) =>
@@ -4424,10 +4437,17 @@ function TrendChart({ data }: { data: TrendPoint[] }) {
       ),
     ),
   );
+  const pointLabelCount = visibleData.length <= 8 ? visibleData.length : visibleData.length <= 45 ? 8 : 6;
+  const pointLabelIndexes = Array.from(
+    new Set(
+      Array.from({ length: pointLabelCount }, (_, index) =>
+        pointLabelCount <= 1 ? 0 : Math.round((index * (visibleData.length - 1)) / (pointLabelCount - 1)),
+      ),
+    ),
+  );
 
   const activeItem = active != null ? visibleData[active] ?? null : null;
-  const latestItem = visibleData[visibleData.length - 1];
-  const selectedItem = activeItem ?? latestItem;
+  const activeLabelIndex = active != null && !pointLabelIndexes.includes(active) ? active : null;
   const positiveDays = visibleData.filter((item) => item.share > 0).length;
   const statItems = [
     { label: "Doanh số", value: currency(totalRevenue), note: "Tổng học phí" },
@@ -4490,27 +4510,21 @@ function TrendChart({ data }: { data: TrendPoint[] }) {
       </div>
 
       <div className="chart-body">
-        <div className="chart-plot-card">
+        <div className="chart-plot-card excel-line-card">
           <div className="chart-plot-toolbar">
-            <span>Đường thu nhập</span>
+            <span>Thu nhập theo ngày</span>
             <strong>
               {activeItem
                 ? `${shortDate(activeItem.date)} · ${currency(activeItem.share)}`
                 : `Đỉnh ${currency(visibleData[bestIndex].share)}`}
             </strong>
           </div>
-          <div className="chart-plot" onMouseMove={onMove} onMouseLeave={() => setActive(null)}>
+          <div className="chart-plot excel-line-plot" onMouseMove={onMove} onMouseLeave={() => setActive(null)}>
             <svg viewBox="0 0 100 100" preserveAspectRatio="none" role="img" aria-label="Biểu đồ doanh thu theo ngày">
-              <path d={`M0 ${topY} H100`} className="chart-grid light" />
-              <path d={`M0 ${(topY + baseY) / 2} H100`} className="chart-grid" />
-              <path d={`M0 ${baseY} H100`} className="chart-axis" />
-              <path d={area} className="chart-area" />
+              <path d={`M${padX} ${topY} H${100 - padX}`} className="chart-grid light" />
+              <path d={`M${padX} ${(topY + baseY) / 2} H${100 - padX}`} className="chart-grid" />
+              <path d={`M${padX} ${baseY} H${100 - padX}`} className="chart-axis" />
               <polyline points={line} className="chart-line" />
-              {showDots
-                ? visibleData.map((item, index) => (
-                    <circle key={item.date} cx={xAt(index)} cy={yAt(item.share)} r="1.45" className="chart-dot" />
-                  ))
-                : null}
               {activeItem ? (
                 <>
                   <path d={`M${xAt(active as number)} ${topY} V${baseY}`} className="chart-guide" />
@@ -4518,6 +4532,25 @@ function TrendChart({ data }: { data: TrendPoint[] }) {
                 </>
               ) : null}
             </svg>
+            <div className="chart-value-labels" aria-hidden="true">
+              {pointLabelIndexes.map((index) => (
+                <span
+                  key={index}
+                  className="chart-value-label"
+                  style={{ left: `${xAt(index)}%`, top: `${yAt(visibleData[index].share)}%` }}
+                >
+                  {compactMoney(visibleData[index].share)}
+                </span>
+              ))}
+              {activeLabelIndex != null ? (
+                <span
+                  className="chart-value-label active"
+                  style={{ left: `${xAt(activeLabelIndex)}%`, top: `${yAt(visibleData[activeLabelIndex].share)}%` }}
+                >
+                  {compactMoney(visibleData[activeLabelIndex].share)}
+                </span>
+              ) : null}
+            </div>
             {activeItem ? (
               <div
                 className="chart-tooltip"
@@ -4538,47 +4571,6 @@ function TrendChart({ data }: { data: TrendPoint[] }) {
             </div>
           </div>
         </div>
-
-        <aside className="daily-revenue-panel" aria-label="Danh sách doanh thu theo ngày">
-          <div className="daily-revenue-summary">
-            <span>{activeItem ? "Ngày đang xem" : "Ngày mới nhất"}</span>
-            <strong>{currency(selectedItem.share)}</strong>
-            <small>{shortDate(selectedItem.date)} · {currency(selectedItem.revenue)} doanh số</small>
-          </div>
-          <div className="daily-revenue-head">
-            <span>Ngày</span>
-            <span>Tỷ trọng</span>
-            <span>Anh nhận</span>
-          </div>
-          <div className="daily-revenue-list" onMouseLeave={() => setActive(null)}>
-            {visibleData
-              .map((item, index) => ({ item, index }))
-              .reverse()
-              .map(({ item, index }) => {
-                const percent = item.share > 0 ? Math.max((item.share / max) * 100, 3) : 0;
-                return (
-                  <button
-                    key={item.date}
-                    type="button"
-                    className={active === index ? "daily-revenue-row active" : "daily-revenue-row"}
-                    onMouseEnter={() => setActive(index)}
-                    onFocus={() => setActive(index)}
-                    onBlur={() => setActive(null)}
-                    aria-label={`${shortDate(item.date)}: ${currency(item.share)}`}
-                  >
-                    <span className="daily-revenue-date">{shortDate(item.date).slice(0, 5)}</span>
-                    <span className="daily-revenue-track" aria-hidden="true">
-                      <i style={{ width: `${percent}%` }} />
-                    </span>
-                    <span className="daily-revenue-amount">
-                      <strong>{currency(item.share)}</strong>
-                      <small>{currency(item.revenue)} doanh số</small>
-                    </span>
-                  </button>
-                  );
-                })}
-          </div>
-        </aside>
       </div>
     </div>
   );
