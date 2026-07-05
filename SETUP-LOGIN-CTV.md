@@ -18,7 +18,7 @@ Group mà họ **được thêm làm thành viên**.
 - **Cấp quyền CTV nhanh = thêm CTV vào Google Group cấp quyền.** App kiểm tra
   membership của nhóm `CTV_ACCESS_GROUP_EMAIL` khi đăng nhập và khi gọi API.
 - **Quyền thao tác nhóm học thử:** CTV chỉ được xem/thêm thành viên `MEMBER`
-  trong nhóm `CTV_TRIAL_GROUP_EMAIL`. Admin vẫn có toàn quyền mọi nhóm.
+  trong các nhóm khai ở `CTV_TRIAL_GROUP_EMAILS`. Admin vẫn có toàn quyền mọi nhóm.
 
 > Để rút quyền một CTV, chỉ cần xóa họ khỏi nhóm `CTV_ACCESS_GROUP_EMAIL`.
 > Nếu đang dùng `APP_CTV_EMAILS` kiểu cũ thì cần xóa email khỏi biến môi trường.
@@ -46,7 +46,7 @@ GOOGLE_OAUTH_CLIENT_SECRET=...
 APP_SESSION_SECRET=<chuỗi ngẫu nhiên 32 byte hex>   # đã tạo sẵn cho máy này
 # APP_ADMIN_EMAILS=admin2@dautruonghoctap.io.vn      # tùy chọn
 CTV_ACCESS_GROUP_EMAIL=ctv@dautruonghoctap.io.vn
-CTV_TRIAL_GROUP_EMAIL=2k9-hoc-thu@dautruonghoctap.io.vn
+CTV_TRIAL_GROUP_EMAILS=2k9-hoc-thu@dautruonghoctap.io.vn,2k10-hoc-thu@dautruonghoctap.io.vn
 ```
 
 Tạo session secret mới (nếu cần):
@@ -62,7 +62,7 @@ node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
 2. Thêm email CTV vào Google Group đã khai báo ở `CTV_ACCESS_GROUP_EMAIL`
    (ví dụ `ctv@dautruonghoctap.io.vn`).
 3. CTV vào web, bấm **Đăng nhập với Google**, chọn tài khoản nội bộ → thấy trang
-   CTV và chỉ thao tác được nhóm học thử `CTV_TRIAL_GROUP_EMAIL`.
+   CTV và chỉ thao tác được các nhóm học thử `CTV_TRIAL_GROUP_EMAILS`.
 
 ## Kiểm thử nhanh
 

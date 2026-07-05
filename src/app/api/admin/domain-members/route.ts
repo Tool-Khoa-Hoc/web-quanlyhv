@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 
 import {
   describeApiError,
-  getCtvTrialGroupKey,
+  getCtvTrialGroupKeys,
   getDirectory,
   getWorkspaceDomain,
 } from "@/lib/google-admin";
@@ -19,26 +19,38 @@ export async function GET() {
   const session = await requireSession();
   if (session instanceof NextResponse) return session;
 
-  const trialGroupKey = getCtvTrialGroupKey();
-  if (!trialGroupKey) return NextResponse.json({ members: [] });
+  const trialGroupKeys = getCtvTrialGroupKeys();
+  if (!trialGroupKeys.length) return NextResponse.json({ members: [] });
 
   try {
     const domainSuffix = `@${getWorkspaceDomain().trim().toLowerCase()}`;
     const directory = getDirectory();
     const emails = new Set<string>();
     let pageToken: string | undefined;
-    do {
-      const res = await directory.members.list({
-        groupKey: trialGroupKey,
-        maxResults: 200,
-        pageToken,
-      });
-      for (const m of res.data.members ?? []) {
-        const email = (m.email ?? "").trim().toLowerCase();
-        if (email.endsWith(domainSuffix)) emails.add(email);
+    for (const trialGroupKey of trialGroupKeys) {
+      try {
+        pageToken = undefined;
+        do {
+          const res: {
+            data: {
+              members?: Array<{ email?: string | null }>;
+              nextPageToken?: string | null;
+            };
+          } = await directory.members.list({
+            groupKey: trialGroupKey,
+            maxResults: 200,
+            pageToken,
+          });
+          for (const m of res.data.members ?? []) {
+            const email = (m.email ?? "").trim().toLowerCase();
+            if (email.endsWith(domainSuffix)) emails.add(email);
+          }
+          pageToken = res.data.nextPageToken ?? undefined;
+        } while (pageToken);
+      } catch (error) {
+        if ((error as { code?: number }).code !== 404) throw error;
       }
-      pageToken = res.data.nextPageToken ?? undefined;
-    } while (pageToken);
+    }
 
     const members: DomainMember[] = Array.from(emails)
       .sort()

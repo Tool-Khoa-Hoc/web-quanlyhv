@@ -79,18 +79,33 @@ export function getWorkspaceDomain(): string {
 }
 
 /**
- * Email nhóm "học thử" — nhóm DUY NHẤT mà cộng tác viên (CTV) được phép thao tác.
- * Khai báo qua CTV_TRIAL_GROUP_EMAIL. Trả null nếu chưa cấu hình (khi đó CTV bị chặn hết — fail closed).
+ * Email các nhóm "học thử" mà cộng tác viên (CTV) được phép thao tác.
+ * Khai báo qua CTV_TRIAL_GROUP_EMAILS. Nếu chưa cấu hình, CTV bị chặn hết (fail closed).
  */
+function envEmailList(name: string): string[] {
+  return (process.env[name] ?? "")
+    .split(/[,\n]/)
+    .map((email) => email.trim().toLowerCase())
+    .filter(Boolean);
+}
+
+export function getCtvTrialGroupKeys(): string[] {
+  return Array.from(
+    new Set([
+      ...envEmailList("CTV_TRIAL_GROUP_EMAILS"),
+      ...envEmailList("CTV_TRIAL_GROUP_EMAIL"),
+    ]),
+  );
+}
+
 export function getCtvTrialGroupKey(): string | null {
-  const v = process.env.CTV_TRIAL_GROUP_EMAIL?.trim().toLowerCase();
-  return v ? v : null;
+  return getCtvTrialGroupKeys()[0] ?? null;
 }
 
 /** So khớp groupKey (email nhóm) với nhóm học thử, không phân biệt hoa/thường/khoảng trắng. */
 export function isCtvTrialGroup(groupKey: string): boolean {
-  const trial = getCtvTrialGroupKey();
-  return Boolean(trial && groupKey.trim().toLowerCase() === trial);
+  const normalized = groupKey.trim().toLowerCase();
+  return getCtvTrialGroupKeys().includes(normalized);
 }
 
 export function getAdminRuntimeConfig() {
@@ -144,6 +159,7 @@ export async function getGroupByKey(groupKey: string) {
     name: g.name ?? g.email ?? "",
     description: g.description ?? "",
     directMembersCount: Number(g.directMembersCount ?? 0),
+    isTrial: isCtvTrialGroup(g.email ?? groupKey),
   };
 }
 

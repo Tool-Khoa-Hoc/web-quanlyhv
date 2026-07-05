@@ -2,10 +2,11 @@ import { NextResponse } from "next/server";
 
 import {
   describeApiError,
-  getCtvTrialGroupKey,
+  getCtvTrialGroupKeys,
   getDirectory,
   getGroupByKey,
   getWorkspaceDomain,
+  isCtvTrialGroup,
 } from "@/lib/google-admin";
 import { rejectCrossSiteMutation, requireAdmin, requireSession } from "@/lib/api-guard";
 import type { ApiGroup } from "@/lib/admin-types";
@@ -14,18 +15,25 @@ export const dynamic = "force-dynamic";
 
 // GET /api/admin/groups
 //  - Admin: tất cả nhóm trong domain.
-//  - CTV: CHỈ nhóm học thử (CTV_TRIAL_GROUP_EMAIL). Chưa cấu hình → danh sách rỗng.
+//  - CTV: CHỈ các nhóm học thử (CTV_TRIAL_GROUP_EMAILS). Chưa cấu hình → danh sách rỗng.
 export async function GET() {
   const session = await requireSession();
   if (session instanceof NextResponse) return session;
 
   try {
     if (session.role === "ctv") {
-      const trial = getCtvTrialGroupKey();
-      if (!trial) return NextResponse.json({ groups: [] });
+      const trialGroups = getCtvTrialGroupKeys();
+      if (!trialGroups.length) return NextResponse.json({ groups: [] });
       try {
-        const group = await getGroupByKey(trial);
-        return NextResponse.json({ groups: [group] });
+        const groups: ApiGroup[] = [];
+        for (const trial of trialGroups) {
+          try {
+            groups.push(await getGroupByKey(trial));
+          } catch {
+            // Ignore missing/inaccessible configured trial groups.
+          }
+        }
+        return NextResponse.json({ groups });
       } catch {
         // Nhóm học thử không tồn tại / không lấy được → trả rỗng thay vì lộ nhóm khác.
         return NextResponse.json({ groups: [] });
@@ -50,6 +58,7 @@ export async function GET() {
           name: g.name ?? g.email ?? "",
           description: g.description ?? "",
           directMembersCount: Number(g.directMembersCount ?? 0),
+          isTrial: isCtvTrialGroup(g.email ?? ""),
         });
       }
       pageToken = res.data.nextPageToken ?? undefined;
@@ -99,6 +108,7 @@ export async function POST(request: Request) {
       name: g.name ?? name,
       description: g.description ?? "",
       directMembersCount: Number(g.directMembersCount ?? 0),
+      isTrial: isCtvTrialGroup(g.email ?? email),
     };
     return NextResponse.json({ group }, { status: 201 });
   } catch (error) {

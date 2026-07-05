@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 
-import { describeApiError, getDirectory, getCtvTrialGroupKey } from "@/lib/google-admin";
+import { describeApiError, getDirectory, getCtvTrialGroupKeys } from "@/lib/google-admin";
 import { rejectCrossSiteMutation, requireGroupAccess, requireSession } from "@/lib/api-guard";
 import { KvStoreError } from "@/lib/kv";
 import {
@@ -35,10 +35,10 @@ export async function GET() {
     if (session.role === "admin") {
       return NextResponse.json({ records });
     }
-    const trial = getCtvTrialGroupKey();
-    if (!trial) return NextResponse.json({ records: [] });
+    const trials = new Set(getCtvTrialGroupKeys());
+    if (!trials.size) return NextResponse.json({ records: [] });
     const filtered = records.filter(
-      (record) => record.groupEmail.trim().toLowerCase() === trial,
+      (record) => trials.has(record.groupEmail.trim().toLowerCase()),
     );
     return NextResponse.json({ records: filtered });
   } catch (error) {

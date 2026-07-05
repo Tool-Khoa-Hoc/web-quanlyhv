@@ -3,7 +3,7 @@ import "server-only";
 import { NextResponse } from "next/server";
 
 import { ctvEmailAllowed, getSession, type AppSession } from "./auth";
-import { describeApiError, getCtvTrialGroupKey, isCtvTrialGroup } from "./google-admin";
+import { describeApiError, getCtvTrialGroupKeys, isCtvTrialGroup } from "./google-admin";
 
 // Helper bảo vệ các API route: trả về session hợp lệ hoặc NextResponse lỗi.
 // Cách dùng: const s = await requireSession(); if (s instanceof NextResponse) return s;
@@ -52,7 +52,7 @@ export function rejectCrossSiteMutation(request: Request): NextResponse | null {
 /**
  * Yêu cầu phiên đăng nhập + quyền trên nhóm groupKey.
  * - Admin: full quyền mọi nhóm.
- * - CTV: CHỈ được thao tác trên nhóm học thử (CTV_TRIAL_GROUP_EMAIL).
+ * - CTV: CHỈ được thao tác trên các nhóm học thử (CTV_TRIAL_GROUP_EMAILS).
  *   Fail-closed: nếu chưa cấu hình nhóm học thử thì CTV bị chặn hoàn toàn.
  */
 export async function requireGroupAccess(groupKey: string): Promise<AppSession | NextResponse> {
@@ -71,9 +71,9 @@ export async function requireGroupAccess(groupKey: string): Promise<AppSession |
     const { status, message } = describeApiError(error);
     return NextResponse.json({ error: message }, { status });
   }
-  if (!getCtvTrialGroupKey()) {
+  if (!getCtvTrialGroupKeys().length) {
     return NextResponse.json(
-      { error: "Hệ thống chưa cấu hình nhóm học thử cho CTV (CTV_TRIAL_GROUP_EMAIL)." },
+      { error: "Hệ thống chưa cấu hình nhóm học thử cho CTV (CTV_TRIAL_GROUP_EMAILS)." },
       { status: 403 },
     );
   }

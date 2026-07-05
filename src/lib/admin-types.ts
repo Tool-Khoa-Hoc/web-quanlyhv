@@ -18,6 +18,7 @@ export interface ApiGroup {
   name: string;
   description: string;
   directMembersCount: number;
+  isTrial?: boolean;
 }
 
 export interface ApiMember {

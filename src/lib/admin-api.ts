@@ -232,7 +232,7 @@ export function apiGroupToCourseGroup(group: ApiGroup): CourseGroup {
   const dashIndex = base.indexOf(" - ");
   const subject = dashIndex >= 0 ? base.slice(0, dashIndex).trim() : base;
   const teacher = dashIndex >= 0 ? base.slice(dashIndex + 3).trim() : "Full Giáo Viên";
-  const lower = name.toLowerCase();
+  const lower = group.isTrial ? `học thử ${name.toLowerCase()}` : name.toLowerCase();
   const kind: CourseGroup["kind"] = lower.includes("học thử")
     ? "trial"
     : lower.includes("combo")
