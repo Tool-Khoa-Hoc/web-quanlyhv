@@ -90,9 +90,19 @@ export async function apiRemoveMember(
   groupEmail: string,
   memberEmail: string,
 ): Promise<{ missing: boolean }> {
+  const normalizedGroupEmail = groupEmail.trim();
+  const normalizedMemberEmail = memberEmail.trim().toLowerCase();
+  if (!normalizedGroupEmail || !normalizedMemberEmail) {
+    throw new Error("Thiếu Google Group hoặc email thành viên cần xóa.");
+  }
+
   const res = await fetch(
-    `/api/admin/groups/${encodeURIComponent(groupEmail)}/members/${encodeURIComponent(memberEmail)}`,
-    { method: "DELETE" },
+    `/api/admin/groups/${encodeURIComponent(normalizedGroupEmail)}/members/${encodeURIComponent(normalizedMemberEmail)}`,
+    {
+      method: "DELETE",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ memberKey: normalizedMemberEmail }),
+    },
   );
   const data = await jsonOrThrow<{ ok: boolean; missing?: boolean }>(res);
   return { missing: Boolean(data.missing) };
@@ -103,12 +113,18 @@ export async function apiUpdateRole(
   memberEmail: string,
   role: GroupRole,
 ): Promise<ApiMember> {
+  const normalizedGroupEmail = groupEmail.trim();
+  const normalizedMemberEmail = memberEmail.trim().toLowerCase();
+  if (!normalizedGroupEmail || !normalizedMemberEmail) {
+    throw new Error("Thiếu Google Group hoặc email thành viên cần đổi vai trò.");
+  }
+
   const res = await fetch(
-    `/api/admin/groups/${encodeURIComponent(groupEmail)}/members/${encodeURIComponent(memberEmail)}`,
+    `/api/admin/groups/${encodeURIComponent(normalizedGroupEmail)}/members/${encodeURIComponent(normalizedMemberEmail)}`,
     {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ role: roleToApi(role) }),
+      body: JSON.stringify({ role: roleToApi(role), memberKey: normalizedMemberEmail }),
     },
   );
   const data = await jsonOrThrow<{ member: ApiMember }>(res);

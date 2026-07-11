@@ -1,5 +1,13 @@
 import type { Metadata, Viewport } from "next";
+import { Be_Vietnam_Pro } from "next/font/google";
 import "./globals.css";
+
+const beVietnamPro = Be_Vietnam_Pro({
+  subsets: ["latin", "vietnamese"],
+  variable: "--font-be-vietnam",
+  display: "swap",
+  weight: ["400", "500", "600", "700"],
+});
 
 export const metadata: Metadata = {
   title: "Đấu Trường Học Tập · Quản lý khóa học",
@@ -20,7 +28,12 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="vi" suppressHydrationWarning>
-      <body>{children}</body>
+      <body className={beVietnamPro.variable}>
+        <a className="skip-link" href="#main-content">
+          Bỏ qua điều hướng
+        </a>
+        {children}
+      </body>
     </html>
   );
 }

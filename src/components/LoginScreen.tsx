@@ -36,6 +36,7 @@ export function LoginScreen({
   return (
     <div className="login-screen">
       <section className="login-card">
+        <span className="login-kicker">Workspace nội bộ</span>
         <div className="login-logo">
           <Image
             src="/logo.png"
@@ -45,9 +46,9 @@ export function LoginScreen({
             priority
           />
         </div>
-        <h1>Quản lý khóa học</h1>
+        <h1>Trung tâm điều hành khóa học</h1>
         <p className="login-sub">
-          Đăng nhập bằng tài khoản Google nội bộ <strong>@{domain}</strong> do quản trị viên cấp.
+          Theo dõi học viên, doanh thu và Google Group trong một nơi. Đăng nhập bằng tài khoản <strong>@{domain}</strong>.
         </p>
 
         {authError ? (
@@ -75,7 +76,7 @@ export function LoginScreen({
         )}
 
         <p className="login-foot">
-          Cộng tác viên chỉ thấy và quản lý các nhóm được cấp quyền. Tài khoản ngoài domain sẽ bị từ chối.
+          Quyền truy cập được giới hạn theo vai trò. Cộng tác viên chỉ thấy các nhóm đã được cấp.
         </p>
       </section>
     </div>

@@ -35,7 +35,7 @@ import {
   X,
 } from "lucide-react";
 import Image from "next/image";
-import { FormEvent, MouseEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { FormEvent, MouseEvent, useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 
 import {
   byId,
@@ -186,6 +186,12 @@ interface GroupFormState {
 function isStudentGroup(group: Pick<CourseGroup, "groupEmail">) {
   const localPart = group.groupEmail.trim().toLowerCase().split("@", 1)[0] ?? "";
   return localPart.startsWith("sv-");
+}
+
+function groupKindLabel(kind: CourseGroup["kind"]) {
+  if (kind === "trial") return "Học thử";
+  if (kind === "combo") return "Combo";
+  return "Trả phí";
 }
 
 type CourseTrack = "thpt" | "student";
@@ -916,7 +922,7 @@ export function CourseManagerApp({ session }: { session: ClientSession }) {
     const enrollment = state.enrollments.find((item) => item.id === enrollmentId);
     if (!enrollment) return;
     const student = model.studentMap.get(enrollment.studentId);
-    const group = model.groupMap.get(enrollment.groupId);
+    const group = resolveEnrollmentGroup(state, enrollment);
     const gmail = student?.gmail.trim().toLowerCase();
 
     if (!gmail || !group?.groupEmail) {
@@ -1476,7 +1482,7 @@ export function CourseManagerApp({ session }: { session: ClientSession }) {
         <UserCard session={session} />
       </aside>
 
-      <main className="main">
+      <main className="main" id="main-content">
         <header className="topbar">
           {isAdmin ? (
             <div className="search-box">
@@ -1541,7 +1547,10 @@ export function CourseManagerApp({ session }: { session: ClientSession }) {
           </div>
         ) : null}
 
-        {isAdmin && adminNotice ? (
+        {isAdmin &&
+        adminNotice &&
+        adminNotice !==
+          (adminStatus.state === "error" ? `Admin SDK chưa sẵn sàng: ${adminStatus.message}` : "") ? (
           <div className="alert-strip app-notice" role="status" aria-live="polite">
             <AlertTriangle size={18} aria-hidden="true" />
             <span>{adminNotice}</span>
@@ -2726,7 +2735,7 @@ function GroupsView({
   trialRecords: TrialRecord[];
   onAddGroup: (form: GroupFormState) => void;
   onDeleteGroup: (groupId: string) => void;
-  onSyncFromGoogle: () => void;
+  onSyncFromGoogle: () => void | Promise<void>;
   onOpenGroup: (group: CourseGroup) => void;
   onAddMember: (
     groupId: string,
@@ -2740,14 +2749,60 @@ function GroupsView({
 }) {
   const [showAddGroup, setShowAddGroup] = useState(false);
   const [activeGroupId, setActiveGroupId] = useState<string | null>(null);
+  const [groupSearch, setGroupSearch] = useState("");
+  const [kindFilter, setKindFilter] = useState<"all" | CourseGroup["kind"]>("all");
+  const [syncingGroups, setSyncingGroups] = useState(false);
   const activeGroup = activeGroupId ? state.groups.find((group) => group.id === activeGroupId) : null;
-  const visibleGroups = isAdmin
+  const scopedGroups = isAdmin
     ? state.groups.filter((group) => isStudentGroup(group) === studentGroupsOnly)
     : state.groups;
+  const searchTerms = groupSearch.trim().toLowerCase().split(/\s+/).filter(Boolean);
+  const visibleGroups = scopedGroups.filter((group) => {
+    if (kindFilter !== "all" && group.kind !== kindFilter) return false;
+    if (!searchTerms.length) return true;
+    const haystack = [
+      group.name,
+      group.groupEmail,
+      group.subject,
+      group.teacher,
+      group.kind,
+      groupKindLabel(group.kind),
+      group.kind === "trial" ? "hoc thu học thử trial" : "",
+      group.kind === "paid" ? "tra phi trả phí paid" : "",
+      group.kind === "combo" ? "combo goi bộ" : "",
+      String(group.priceHint),
+    ]
+      .filter(Boolean)
+      .join(" ")
+      .toLowerCase();
+    return searchTerms.every((term) => haystack.includes(term));
+  });
   const visibleGroupIds = new Set(visibleGroups.map((group) => group.id));
   const visibleJobs = state.jobs.filter((job) =>
     job.groupId ? visibleGroupIds.has(job.groupId) : !studentGroupsOnly,
   );
+  const hasGroupFilter = Boolean(groupSearch.trim()) || kindFilter !== "all";
+  const syncLabel = syncingGroups ? "Đang đồng bộ..." : isAdmin ? "Đồng bộ Google Group" : "Tải lại nhóm";
+  const syncTitle = isAdmin
+    ? "Nạp lại danh sách nhóm và số thành viên thật từ Google"
+    : "Tải lại các nhóm học thử được cấp quyền";
+  const emptyGroupLabel = hasGroupFilter
+    ? "Không tìm thấy nhóm phù hợp. Thử tên khóa, email group, môn học hoặc giáo viên."
+    : isAdmin
+      ? studentGroupsOnly
+        ? "Chưa có khóa sinh viên nào. Các group có email bắt đầu bằng sv- sẽ xuất hiện tại đây."
+        : "Chưa có nhóm nào. Bấm 'Đồng bộ Google Group' để nạp nhóm thật."
+      : "Bạn chưa được cấp quyền nhóm nào. Liên hệ quản trị viên để được thêm vào nhóm.";
+
+  async function handleSyncGroups() {
+    if (syncingGroups) return;
+    setSyncingGroups(true);
+    try {
+      await onSyncFromGoogle();
+    } finally {
+      setSyncingGroups(false);
+    }
+  }
 
   return (
     <>
@@ -2768,27 +2823,50 @@ function GroupsView({
               : "Các nhóm bạn được cấp quyền. Bạn có thể thêm/xóa/đổi vai trò thành viên."}
           </p>
         </div>
-        <div className="topbar-actions">
+      </div>
+      <section className="group-command-bar" aria-label="Công cụ quản lý nhóm">
+        <label className="group-search-box">
+          <Search size={18} aria-hidden="true" />
+          <input
+            value={groupSearch}
+            onChange={(event) => setGroupSearch(event.target.value)}
+            placeholder="Tìm nhóm theo tên, email, môn học..."
+            aria-label="Tìm nhóm"
+          />
+          {groupSearch ? (
+            <button
+              className="group-search-clear"
+              type="button"
+              aria-label="Xóa tìm kiếm nhóm"
+              onClick={() => setGroupSearch("")}
+            >
+              <X size={16} />
+            </button>
+          ) : null}
+        </label>
+        <label className="group-kind-filter">
+          <Filter size={16} aria-hidden="true" />
+          <select
+            value={kindFilter}
+            aria-label="Lọc loại nhóm"
+            onChange={(event) => setKindFilter(event.target.value as "all" | CourseGroup["kind"])}
+          >
+            <option value="all">Tất cả nhóm</option>
+            <option value="trial">Học thử</option>
+            <option value="paid">Trả phí</option>
+            <option value="combo">Combo</option>
+          </select>
+        </label>
+        <div className="group-command-actions">
           <button
-            className="button ghost"
+            className="button secondary group-sync-button"
             type="button"
-            title="Nạp lại danh sách nhóm + số thành viên thật từ Google"
-            onClick={() => {
-              if (!isAdmin) {
-                onSyncFromGoogle();
-                return;
-              }
-              if (
-                window.confirm(
-                  "Tải lại danh sách nhóm từ Google? Danh sách hiện tại sẽ được thay bằng dữ liệu thật trong domain.",
-                )
-              ) {
-                onSyncFromGoogle();
-              }
-            }}
+            title={syncTitle}
+            disabled={syncingGroups}
+            onClick={handleSyncGroups}
           >
             <RefreshCw size={17} />
-            <span>{isAdmin ? "Đồng bộ từ Google" : "Tải lại"}</span>
+            <span>{syncLabel}</span>
           </button>
           {isAdmin ? (
             <button className="button primary" type="button" onClick={() => setShowAddGroup(true)}>
@@ -2797,7 +2875,11 @@ function GroupsView({
             </button>
           ) : null}
         </div>
-      </div>
+        <p className="group-result-count">
+          {visibleGroups.length}/{scopedGroups.length} nhóm
+          {hasGroupFilter ? " phù hợp" : ""}
+        </p>
+      </section>
       <div className="group-grid">
         {visibleGroups.length ? (
           visibleGroups.map((group) => (
@@ -2816,7 +2898,7 @@ function GroupsView({
               </div>
               <div className="group-footer">
                 <StatusBadge variant={group.kind === "trial" ? "info" : "success"}>
-                  {group.kind === "trial" ? "Học thử" : group.kind === "combo" ? "Combo" : "Trả phí"}
+                  {groupKindLabel(group.kind)}
                 </StatusBadge>
                 <span>
                   <Users size={14} aria-hidden="true" />{" "}
@@ -2853,15 +2935,7 @@ function GroupsView({
             </section>
           ))
         ) : (
-          <EmptyState
-            label={
-              isAdmin
-                ? studentGroupsOnly
-                  ? "Chưa có khóa sinh viên nào. Các group có email bắt đầu bằng sv- sẽ xuất hiện tại đây."
-                  : "Chưa có nhóm nào. Bấm 'Đồng bộ từ Google' để nạp nhóm thật."
-                : "Bạn chưa được cấp quyền nhóm nào. Liên hệ quản trị viên để được thêm vào nhóm."
-            }
-          />
+          <EmptyState label={emptyGroupLabel} />
         )}
       </div>
       {isAdmin ? (
@@ -3880,9 +3954,10 @@ function EnrollmentModal({
       });
     }
   }
+  const modalTitle = type === "trial" ? "Thêm học thử" : "Thêm giao dịch";
 
   return (
-    <ModalShell title="Thêm đăng ký" onClose={onClose}>
+    <ModalShell title={modalTitle} onClose={onClose}>
       <form className="form-grid" onSubmit={submit}>
         <div className="enrollment-course-tabs" role="tablist" aria-label="Chọn khóa học">
           <button
@@ -4094,6 +4169,8 @@ function GroupSearchField({
 }) {
   const selectedGroup = groups.find((group) => group.id === value);
   const selectedLabel = selectedGroup ? `${selectedGroup.name} · ${selectedGroup.groupEmail}` : "";
+  const listboxId = useId();
+  const inputRef = useRef<HTMLInputElement | null>(null);
   const [searchValue, setSearchValue] = useState(selectedLabel);
   const [open, setOpen] = useState(false);
   const [activeIndex, setActiveIndex] = useState(0);
@@ -4135,23 +4212,31 @@ function GroupSearchField({
     setOpen(false);
   }
 
+  function clearSearch() {
+    setSearchValue("");
+    setOpen(true);
+    requestAnimationFrame(() => inputRef.current?.focus());
+  }
+
   return (
     <label className="field-label searchable-field">
       {label}
       <div className="searchable-select">
         <Search className="searchable-select-icon" size={16} aria-hidden="true" />
         <input
+          ref={inputRef}
           className="input searchable-select-input"
           type="text"
           value={searchValue}
-          placeholder="Gõ tên nhóm hoặc email nhóm"
+          placeholder="Tìm tên nhóm, email, môn, giáo viên"
           autoComplete="off"
           role="combobox"
           aria-expanded={open}
-          aria-controls="group-search-results"
+          aria-controls={listboxId}
           aria-autocomplete="list"
-          onFocus={() => {
+          onFocus={(event) => {
             if (blurTimer.current) clearTimeout(blurTimer.current);
+            event.currentTarget.select();
             setOpen(true);
           }}
           onBlur={() => {
@@ -4184,8 +4269,19 @@ function GroupSearchField({
             }
           }}
         />
+        {searchValue ? (
+          <button
+            className="searchable-select-clear"
+            type="button"
+            aria-label="Xóa nội dung tìm nhóm"
+            onMouseDown={(event) => event.preventDefault()}
+            onClick={clearSearch}
+          >
+            <X size={15} />
+          </button>
+        ) : null}
         {open ? (
-          <div className="searchable-select-menu" id="group-search-results" role="listbox">
+          <div className="searchable-select-menu" id={listboxId} role="listbox">
             {filteredGroups.length ? (
               filteredGroups.map((group, index) => (
                 <button
@@ -4200,6 +4296,9 @@ function GroupSearchField({
                 >
                   <strong>{group.name}</strong>
                   <span>{group.groupEmail}</span>
+                  <small>
+                    {[groupKindLabel(group.kind), group.subject, group.teacher].filter(Boolean).join(" · ")}
+                  </small>
                 </button>
               ))
             ) : (
