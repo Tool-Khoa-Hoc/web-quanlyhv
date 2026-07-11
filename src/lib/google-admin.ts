@@ -11,6 +11,8 @@ const SCOPES = [
   "https://www.googleapis.com/auth/admin.directory.group.member",
 ];
 
+export const SHEET_HOC_DTHT_GROUP_EMAIL = "sheet-hoc-dtht@dautruonghoctap.io.vn";
+
 export class AdminConfigError extends Error {}
 
 interface ServiceAccountKey {
@@ -175,6 +177,44 @@ export async function userIsGroupMember(email: string, groupKey: string): Promis
     if (code === 404) return false;
     throw error;
   }
+}
+
+type DirectoryGroupRole = "OWNER" | "MANAGER" | "MEMBER";
+
+function getApiStatusCode(error: unknown): number | undefined {
+  const err = error as { code?: number; status?: number };
+  return err.code ?? err.status;
+}
+
+export async function ensureGroupMember(
+  directory: admin_directory_v1.Admin,
+  groupKey: string,
+  email: string,
+  role: DirectoryGroupRole = "MEMBER",
+): Promise<admin_directory_v1.Schema$Member> {
+  const memberEmail = email.trim().toLowerCase();
+  try {
+    const res = await directory.members.insert({
+      groupKey,
+      requestBody: { email: memberEmail, role },
+    });
+    return res.data;
+  } catch (error) {
+    if (getApiStatusCode(error) !== 409) throw error;
+    const res = await directory.members.get({ groupKey, memberKey: memberEmail });
+    return res.data;
+  }
+}
+
+export async function ensureSheetHocDthtMember(
+  directory: admin_directory_v1.Admin,
+  email: string,
+  sourceGroupKey?: string,
+): Promise<admin_directory_v1.Schema$Member | null> {
+  if (sourceGroupKey?.trim().toLowerCase() === SHEET_HOC_DTHT_GROUP_EMAIL) {
+    return null;
+  }
+  return ensureGroupMember(directory, SHEET_HOC_DTHT_GROUP_EMAIL, email, "MEMBER");
 }
 
 /** Chuẩn hóa lỗi từ googleapis thành { status, message } để trả về client. */

@@ -1,6 +1,11 @@
 import { NextResponse } from "next/server";
 
-import { describeApiError, getDirectory } from "@/lib/google-admin";
+import {
+  describeApiError,
+  ensureGroupMember,
+  ensureSheetHocDthtMember,
+  getDirectory,
+} from "@/lib/google-admin";
 import { rejectCrossSiteMutation, requireGroupAccess } from "@/lib/api-guard";
 import type { ApiGroupRole, ApiMember } from "@/lib/admin-types";
 
@@ -70,18 +75,17 @@ export async function POST(
       role = "MEMBER";
     }
 
+    const decodedGroupKey = decodeURIComponent(groupKey);
     const directory = getDirectory();
-    const res = await directory.members.insert({
-      groupKey: decodeURIComponent(groupKey),
-      requestBody: { email, role },
-    });
+    const addedMember = await ensureGroupMember(directory, decodedGroupKey, email, role);
+    await ensureSheetHocDthtMember(directory, email, decodedGroupKey);
 
     const member: ApiMember = {
-      id: res.data.id ?? "",
-      email: res.data.email ?? email,
-      role: (res.data.role as ApiGroupRole) ?? role,
-      status: res.data.status ?? "",
-      type: res.data.type ?? "",
+      id: addedMember.id ?? "",
+      email: addedMember.email ?? email,
+      role: (addedMember.role as ApiGroupRole) ?? role,
+      status: addedMember.status ?? "",
+      type: addedMember.type ?? "",
     };
     return NextResponse.json({ member }, { status: 201 });
   } catch (error) {

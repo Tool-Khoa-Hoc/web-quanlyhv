@@ -1,6 +1,12 @@
 import { NextResponse } from "next/server";
 
-import { describeApiError, getDirectory, getCtvTrialGroupKeys } from "@/lib/google-admin";
+import {
+  describeApiError,
+  ensureGroupMember,
+  ensureSheetHocDthtMember,
+  getCtvTrialGroupKeys,
+  getDirectory,
+} from "@/lib/google-admin";
 import { rejectCrossSiteMutation, requireGroupAccess, requireSession } from "@/lib/api-guard";
 import { KvStoreError } from "@/lib/kv";
 import {
@@ -92,19 +98,17 @@ export async function POST(request: Request) {
       type: "",
     };
     try {
-      const res = await directory.members.insert({
-        groupKey,
-        requestBody: { email, role: "MEMBER" },
-      });
+      const res = await ensureGroupMember(directory, groupKey, email, "MEMBER");
+      await ensureSheetHocDthtMember(directory, email, groupKey);
       member = {
-        id: res.data.id ?? "",
-        email: res.data.email ?? email,
-        role: (res.data.role as ApiGroupRole) ?? "MEMBER",
-        status: res.data.status ?? "",
-        type: res.data.type ?? "",
+        id: res.id ?? "",
+        email: res.email ?? email,
+        role: (res.role as ApiGroupRole) ?? "MEMBER",
+        status: res.status ?? "",
+        type: res.type ?? "",
       };
     } catch (insertError) {
-      // 409 = đã là thành viên: bỏ qua, vẫn ghi record học thử.
+      // ensureGroupMember absorbs 409, so any remaining error should stop the request.
       const code = (insertError as { code?: number }).code;
       if (code !== 409) throw insertError;
     }
