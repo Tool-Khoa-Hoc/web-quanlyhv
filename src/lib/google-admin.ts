@@ -15,6 +15,15 @@ export const SHEET_HOC_DTHT_GROUP_EMAIL = "sheet-hoc-dtht@dautruonghoctap.io.vn"
 
 export class AdminConfigError extends Error {}
 
+export class AdminUserError extends Error {
+  constructor(
+    message: string,
+    public status = 400,
+  ) {
+    super(message);
+  }
+}
+
 interface ServiceAccountKey {
   client_email: string;
   private_key: string;
@@ -186,6 +195,43 @@ function getApiStatusCode(error: unknown): number | undefined {
   return err.code ?? err.status;
 }
 
+function getGoogleApiMessage(error: unknown): string {
+  const err = error as { response?: { data?: unknown }; errors?: unknown[] };
+  return (
+    getErrorMessage(err.response?.data, "") ||
+    err.errors?.map((item) => getErrorMessage(item, "")).find(Boolean) ||
+    getErrorMessage(error, "")
+  );
+}
+
+function isGoogleResourceNotFound(error: unknown, resourceKey: string): boolean {
+  if (getApiStatusCode(error) !== 404) return false;
+  const message = getGoogleApiMessage(error).toLowerCase();
+  return message.includes("resource not found") && message.includes(resourceKey.toLowerCase());
+}
+
+async function getExistingGroupMember(
+  directory: admin_directory_v1.Admin,
+  groupKey: string,
+  memberEmail: string,
+): Promise<admin_directory_v1.Schema$Member | null> {
+  try {
+    const res = await directory.members.get({ groupKey, memberKey: memberEmail });
+    return res.data;
+  } catch {
+    let pageToken: string | undefined;
+    do {
+      const res = await directory.members.list({ groupKey, maxResults: 200, pageToken });
+      const member = (res.data.members ?? []).find(
+        (item) => item.email?.trim().toLowerCase() === memberEmail,
+      );
+      if (member) return member;
+      pageToken = res.data.nextPageToken ?? undefined;
+    } while (pageToken);
+    return null;
+  }
+}
+
 export async function ensureGroupMember(
   directory: admin_directory_v1.Admin,
   groupKey: string,
@@ -200,9 +246,15 @@ export async function ensureGroupMember(
     });
     return res.data;
   } catch (error) {
+    if (isGoogleResourceNotFound(error, memberEmail)) {
+      throw new AdminUserError(
+        `Không thêm được ${memberEmail}: Google không tìm thấy tài khoản hoặc Google Group này. Hãy kiểm tra lại email và chắc chắn tài khoản/group đã tồn tại trước khi thêm.`,
+      );
+    }
+
     if (getApiStatusCode(error) !== 409) throw error;
-    const res = await directory.members.get({ groupKey, memberKey: memberEmail });
-    return res.data;
+    const existingMember = await getExistingGroupMember(directory, groupKey, memberEmail);
+    return existingMember ?? { email: memberEmail, role, type: "USER" };
   }
 }
 
@@ -219,6 +271,9 @@ export async function ensureSheetHocDthtMember(
 
 /** Chuẩn hóa lỗi từ googleapis thành { status, message } để trả về client. */
 export function describeApiError(error: unknown): { status: number; message: string } {
+  if (error instanceof AdminUserError) {
+    return { status: error.status, message: error.message };
+  }
   if (error instanceof AdminConfigError) {
     return { status: 503, message: error.message };
   }
