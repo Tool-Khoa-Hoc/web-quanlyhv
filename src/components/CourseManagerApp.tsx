@@ -1471,6 +1471,7 @@ export function CourseManagerApp({ session }: { session: ClientSession }) {
               key={item.key}
               className={activeView === item.key ? "nav-item active" : "nav-item"}
               onClick={() => setActiveView(item.key)}
+              aria-current={activeView === item.key ? "page" : undefined}
               type="button"
             >
               <item.icon size={18} aria-hidden="true" />
@@ -1685,6 +1686,7 @@ export function CourseManagerApp({ session }: { session: ClientSession }) {
               key={item.key}
               className={activeView === item.key ? "mobile-nav-item active" : "mobile-nav-item"}
               onClick={() => setActiveView(item.key)}
+              aria-current={activeView === item.key ? "page" : undefined}
               type="button"
             >
               <item.icon size={19} aria-hidden="true" />
@@ -1886,8 +1888,8 @@ function MobileTransactionItem({
       <div className="mobile-transaction-main">
         <strong>{student?.gmail}</strong>
         <span>{ctv ? ctvDisplay(ctv) : student?.name}</span>
+        <small>{enrollment.courseType}</small>
       </div>
-      <div className="mobile-transaction-course">{enrollment.courseType}</div>
       <div className="mobile-transaction-money">{currency(enrollment.tuition)}</div>
       <div className="mobile-transaction-status">
         <button

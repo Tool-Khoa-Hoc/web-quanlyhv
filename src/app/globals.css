@@ -3887,11 +3887,13 @@ body {
 
 @media (max-width: 1100px) {
   .app-shell {
+    grid-template-columns: minmax(0, 1fr);
     min-height: 100dvh;
   }
 
   .main {
-    padding: 14px 14px calc(94px + env(safe-area-inset-bottom));
+    width: 100%;
+    padding: 14px 14px calc(128px + env(safe-area-inset-bottom));
   }
 
   .topbar {
@@ -3937,7 +3939,7 @@ body {
     min-height: 52px;
     border-radius: 11px;
     color: #72807a;
-    font-size: 10px;
+    font-size: 11px;
   }
 
   .mobile-nav-item.active {
@@ -3952,7 +3954,7 @@ body {
   }
 
   .main {
-    padding-inline: 10px;
+    padding-inline: 16px;
     padding-top: 10px;
   }
 
@@ -3993,9 +3995,11 @@ body {
   .metric-grid {
     grid-template-columns: 1fr 1fr;
     gap: 9px;
+    overflow: visible;
   }
 
   .metric-card {
+    min-width: 0;
     min-height: 112px;
     padding: 13px;
   }
@@ -4013,6 +4017,25 @@ body {
     width: 36px;
     height: 36px;
     margin-top: 0;
+  }
+
+  .input,
+  .select,
+  .search-box input,
+  .group-search-box,
+  .group-kind-filter {
+    font-size: 16px;
+  }
+
+  .mobile-transaction-main small {
+    display: block;
+    margin-top: 3px;
+    overflow: hidden;
+    color: #7a8580;
+    font-size: 11px;
+    font-weight: 600;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
 
   .panel {
