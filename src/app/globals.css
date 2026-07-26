@@ -3322,33 +3322,63 @@ button:disabled {
   background: var(--red-soft);
 }
 
-/* ===== 2026 workspace redesign: warm, focused, touch friendly ===== */
+/* ============================================================
+   HỆ THIẾT KẾ "BẢNG ĐẤU" — nguồn chân lý duy nhất cho màu/độ bóng.
+   Ẩn dụ: đấu trường học tập nhìn từ trên = các vòng đồng tâm; tiền
+   thắng cuộc = huy chương vàng. Nền ngà ấm, bề mặt rêu sâu, và một
+   sắc VÀNG VÔ ĐỊCH dùng tiết chế cho các điểm nhấn (signature).
+   Khối này ghi đè hệ token xanh dương cũ ở đầu file.
+   ============================================================ */
 :root {
-  --bg: #f2f3ee;
-  --surface: #fbfcf8;
-  --surface-2: #eef1ea;
-  --text: #17211f;
-  --muted: #66716d;
-  --border: #dfe4dc;
-  --border-strong: #cdd5cc;
+  /* Nền & bề mặt — ngà ấm, không phải trắng lạnh */
+  --bg: #f1f2ec;
+  --surface: #fbfbf4;
+  --surface-2: #eaece2;
+  --text: #16211d;
+  --muted: #63706a;
+  --border: #dde2d7;
+  --border-strong: #cbd2c5;
+
+  /* Rêu — sidebar, thẻ nhà vô địch, mực chữ đậm */
+  --forest: #12241f;
+  --forest-2: #1b332c;
+  --forest-line: rgba(228, 245, 238, 0.11);
+
+  /* Vàng vô địch — SIGNATURE, dùng tiết chế: vạch, huy hiệu, viền thẻ.
+     Không bao giờ dùng làm nền badge trạng thái để khỏi đụng amber. */
+  --gold: #c9922e;
+  --gold-strong: #a5741d;
+  --gold-soft: #f4e9cf;
+  --gold-line: rgba(201, 146, 46, 0.55);
+
+  /* Teal-rêu — màu tương tác (nút chính, focus, link). */
   --blue: #147d72;
   --blue-strong: #0d625a;
-  --blue-soft: #def2ed;
-  --green: #3d8358;
-  --green-soft: #e6f3e9;
-  --amber: #b06c1f;
-  --amber-soft: #fbefda;
-  --red: #b84b4b;
-  --red-soft: #f9e8e5;
+  --blue-soft: #dcefe9;
+
+  /* Ngữ nghĩa tiền: xanh = đã thu, hổ phách = nợ, đỏ = âm */
+  --green: #2e7d50;
+  --green-soft: #e3f1e7;
+  --amber: #a9711a;
+  --amber-soft: #f7ead0;
+  --red: #b0433d;
+  --red-soft: #f7e5e1;
+
   --grad-blue: #147d72;
-  --shadow-xs: 0 1px 2px rgba(19, 45, 40, 0.04);
-  --shadow-sm: 0 4px 12px rgba(19, 45, 40, 0.06);
-  --shadow-md: 0 14px 34px rgba(19, 45, 40, 0.09);
-  --shadow-lg: 0 28px 70px rgba(19, 45, 40, 0.14);
+  --grad-surface: #fbfbf4;
+
+  /* Bóng nhuốm rêu cho chiều sâu ấm */
+  --shadow-xs: 0 1px 2px rgba(19, 45, 40, 0.05);
+  --shadow-sm: 0 4px 14px rgba(19, 45, 40, 0.07);
+  --shadow-md: 0 16px 38px rgba(19, 45, 40, 0.1);
+  --shadow-lg: 0 30px 74px rgba(16, 40, 34, 0.16);
   --shadow: var(--shadow-lg);
-  --ring: 0 0 0 3px rgba(20, 125, 114, 0.2);
+  --ring: 0 0 0 3px rgba(20, 125, 114, 0.22);
   --radius: 14px;
   --radius-sm: 10px;
+
+  /* Font hiển thị chỉ cho SỐ lớn — cảm giác bảng tỉ số */
+  --font-display: "Space Grotesk", var(--font-be-vietnam), "Segoe UI", sans-serif;
 }
 
 html {
@@ -3357,10 +3387,23 @@ html {
 
 body {
   background:
-    radial-gradient(circle at 82% 2%, rgba(145, 213, 196, 0.2), transparent 28rem),
+    radial-gradient(circle at 86% -4%, rgba(201, 146, 46, 0.1), transparent 26rem),
+    radial-gradient(circle at 4% 2%, rgba(20, 125, 114, 0.06), transparent 24rem),
     var(--bg);
   font-family: var(--font-be-vietnam), "Segoe UI", sans-serif;
   line-height: 1.5;
+}
+
+/* Font hiển thị (Space Grotesk) chỉ cho SỐ LỚN — bảng tỉ số đấu trường.
+   Luôn nối var(--font-be-vietnam) để ký tự ₫ và dấu tiếng Việt có font đỡ. */
+.metric-card strong,
+.chart-overview-main strong,
+.daily-revenue-summary strong,
+.chart-plot-toolbar strong,
+.form-summary strong {
+  font-family: var(--font-display), var(--font-be-vietnam), "Segoe UI", sans-serif;
+  font-feature-settings: "tnum" 1, "ss01" 1;
+  letter-spacing: -0.02em;
 }
 
 .skip-link {
@@ -3394,8 +3437,9 @@ body {
   padding: 22px 16px 18px;
   border-right: 0;
   background:
-    radial-gradient(circle at 15% 5%, rgba(104, 184, 165, 0.18), transparent 15rem),
-    #132b27;
+    radial-gradient(circle at 88% 2%, rgba(201, 146, 46, 0.12), transparent 13rem),
+    radial-gradient(circle at 12% 4%, rgba(104, 184, 165, 0.16), transparent 15rem),
+    var(--forest);
   color: #f4f8f4;
 }
 
@@ -3452,13 +3496,25 @@ body {
 }
 
 .nav-item.active {
-  background: #e3f3ee;
-  color: #104f49;
-  box-shadow: 0 8px 22px rgba(3, 20, 17, 0.18);
+  background: #eaf4ef;
+  color: #0f4a44;
+  font-weight: 700;
+  box-shadow: 0 8px 22px rgba(3, 20, 17, 0.2);
 }
 
+/* Vạch vàng vô địch đánh dấu mục đang mở — signature structural device */
 .nav-item.active::before {
-  display: none;
+  content: "";
+  display: block;
+  position: absolute;
+  left: 5px;
+  top: 50%;
+  height: 18px;
+  width: 3px;
+  transform: translateY(-50%);
+  border-radius: 3px;
+  background: var(--gold);
+  box-shadow: 0 0 0 1px rgba(201, 146, 46, 0.35);
 }
 
 .sidebar .admin-status-card,
@@ -3600,33 +3656,65 @@ body {
   box-shadow: 0 8px 24px rgba(25, 53, 47, 0.055);
 }
 
+/* Thẻ nhà vô địch — con số chủ đạo của mỗi màn hình, neo bằng rêu sâu.
+   Viền trên vàng mảnh = ruy-băng huy chương. */
 .metric-card:first-child {
-  background: #173d37;
-  color: #f5faf7;
+  background:
+    linear-gradient(180deg, rgba(201, 146, 46, 0.14), transparent 30%),
+    var(--forest);
+  color: #f4f9f5;
+  box-shadow:
+    0 14px 34px rgba(11, 28, 23, 0.24),
+    inset 0 1px 0 var(--gold-line);
 }
 
-.metric-card:first-child span,
+.metric-card:first-child span {
+  color: #b7ccc4;
+}
+
 .metric-card:first-child strong {
-  color: inherit;
+  color: #fbfdf9;
+  font-size: clamp(24px, 2.5vw, 34px);
 }
 
 .metric-card:first-child .metric-icon {
-  background: rgba(226, 244, 237, 0.12);
-  color: #a7dfcf;
+  background: rgba(201, 146, 46, 0.16);
+  color: var(--gold);
+  box-shadow: inset 0 0 0 1px rgba(201, 146, 46, 0.32);
 }
 
 .metric-card:hover {
   transform: translateY(-2px);
-  box-shadow: 0 14px 34px rgba(25, 53, 47, 0.09);
+  box-shadow: 0 16px 38px rgba(25, 53, 47, 0.11);
 }
 
-.metric-card::after {
-  width: 76px;
-  height: 76px;
-  border: 1px solid currentColor;
-  border-radius: 24px;
-  opacity: 0.06;
-  transform: rotate(18deg);
+.metric-card:first-child:hover {
+  box-shadow:
+    0 20px 44px rgba(11, 28, 23, 0.3),
+    inset 0 1px 0 var(--gold-line);
+}
+
+/* Mô-típ vòng đồng tâm — đấu trường nhìn từ trên. Chỉ ở thẻ vô địch. */
+.metric-card:first-child::after {
+  content: "";
+  display: block;
+  position: absolute;
+  right: -52px;
+  bottom: -58px;
+  width: 196px;
+  height: 196px;
+  border: 0;
+  border-radius: 50%;
+  opacity: 1;
+  transform: none;
+  background: repeating-radial-gradient(
+    circle at 50% 50%,
+    rgba(201, 146, 46, 0.16) 0 1.5px,
+    transparent 1.5px 15px
+  );
+  -webkit-mask-image: radial-gradient(circle at 50% 50%, #000 55%, transparent 78%);
+  mask-image: radial-gradient(circle at 50% 50%, #000 55%, transparent 78%);
+  pointer-events: none;
 }
 
 .metric-card span {
@@ -3677,12 +3765,15 @@ body {
 }
 
 .panel-header > span {
-  border-radius: 6px;
-  padding: 4px 7px;
+  border-radius: 999px;
+  padding: 4px 9px;
   background: var(--surface-2);
-  color: #66726d;
+  color: #5b6863;
   font-size: 10px;
-  font-weight: 650;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  white-space: nowrap;
 }
 
 .table-wrap {
@@ -3693,9 +3784,9 @@ body {
 
 .data-table th {
   background: #f2f4ef;
-  color: #74807b;
+  color: #566159;
   font-size: 10px;
-  letter-spacing: 0.045em;
+  letter-spacing: 0.05em;
   text-transform: uppercase;
 }
 
@@ -3793,14 +3884,20 @@ body {
   mask-image: linear-gradient(to bottom, #000, transparent 68%);
 }
 
+/* Vòng đồng tâm đấu trường làm nền — signature lặp lại từ thẻ vô địch */
 .login-screen::after {
-  right: -7rem;
-  bottom: -9rem;
-  width: 26rem;
-  height: 26rem;
-  border: 1px solid rgba(20, 125, 114, 0.18);
-  border-radius: 38% 62% 61% 39%;
-  transform: rotate(18deg);
+  right: -10rem;
+  bottom: -12rem;
+  width: 40rem;
+  height: 40rem;
+  border-radius: 50%;
+  background: repeating-radial-gradient(
+    circle at 50% 50%,
+    rgba(20, 125, 114, 0.14) 0 1.5px,
+    transparent 1.5px 26px
+  );
+  -webkit-mask-image: radial-gradient(circle at 50% 50%, #000 40%, transparent 72%);
+  mask-image: radial-gradient(circle at 50% 50%, #000 40%, transparent 72%);
 }
 
 .login-card {
@@ -3817,15 +3914,28 @@ body {
 
 .login-kicker {
   display: inline-flex;
+  align-items: center;
+  gap: 7px;
   margin-bottom: 18px;
-  border-radius: 6px;
-  padding: 5px 8px;
-  background: #dff1eb;
-  color: #17665e;
+  border: 1px solid var(--gold-line);
+  border-radius: 999px;
+  padding: 5px 11px 5px 9px;
+  background: var(--gold-soft);
+  color: var(--gold-strong);
   font-size: 10px;
   font-weight: 700;
-  letter-spacing: 0.1em;
+  letter-spacing: 0.12em;
   text-transform: uppercase;
+}
+
+/* Chấm vàng như đầu huy chương trước nhãn */
+.login-kicker::before {
+  content: "";
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--gold);
+  box-shadow: 0 0 0 2px rgba(201, 146, 46, 0.25);
 }
 
 .login-logo {
@@ -3837,6 +3947,30 @@ body {
   border: 0;
   border-radius: 18px;
   box-shadow: 0 12px 30px rgba(21, 56, 48, 0.1);
+}
+
+/* Ô đựng monogram đấu trường — nền kem ấm, viền vàng mảnh */
+.login-logo-tile {
+  display: grid;
+  place-items: center;
+  width: 112px;
+  height: 112px;
+  padding: 20px;
+  border: 1px solid var(--gold-line);
+  border-radius: 24px;
+  background: #faf8ec;
+  box-shadow:
+    0 14px 34px rgba(21, 56, 48, 0.12),
+    inset 0 1px 0 rgba(255, 255, 255, 0.7);
+}
+
+@media (max-width: 680px) {
+  .login-logo-tile {
+    width: 96px;
+    height: 96px;
+    padding: 17px;
+    border-radius: 20px;
+  }
 }
 
 .login-card h1 {

@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48">
+  <rect width="48" height="48" rx="11" fill="#12241f" />
+  <circle cx="24" cy="25" r="14.5" fill="none" stroke="#c9922e" stroke-width="2" />
+  <circle cx="24" cy="7.5" r="2.6" fill="#c9922e" />
+  <text x="24" y="26" text-anchor="middle" dominant-baseline="central"
+        font-family="'Segoe UI', system-ui, sans-serif" font-weight="700" font-size="20" fill="#f4f9f5">Đ</text>
+</svg>

@@ -1,5 +1,6 @@
-import Image from "next/image";
 import { AlertTriangle } from "lucide-react";
+
+import { ArenaMark } from "./ArenaMark";
 
 function GoogleGLogo() {
   return (
@@ -38,13 +39,9 @@ export function LoginScreen({
       <section className="login-card">
         <span className="login-kicker">Workspace nội bộ</span>
         <div className="login-logo">
-          <Image
-            src="/logo.png"
-            alt="Đấu Trường Học Tập"
-            width={200}
-            height={200}
-            priority
-          />
+          <span className="login-logo-tile">
+            <ArenaMark size={68} />
+          </span>
         </div>
         <h1>Trung tâm điều hành khóa học</h1>
         <p className="login-sub">

@@ -34,8 +34,9 @@ import {
   WalletCards,
   X,
 } from "lucide-react";
-import Image from "next/image";
 import { FormEvent, MouseEvent, useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
+
+import { ArenaMark } from "./ArenaMark";
 
 import {
   byId,
@@ -1458,7 +1459,7 @@ export function CourseManagerApp({ session }: { session: ClientSession }) {
       <aside className="sidebar" aria-label="Điều hướng chính">
         <div className="brand">
           <div className="brand-mark">
-            <Image src="/logo.png" alt="Đấu Trường Học Tập" width={40} height={40} />
+            <ArenaMark />
           </div>
           <div>
             <strong>Đấu Trường Học Tập</strong>
