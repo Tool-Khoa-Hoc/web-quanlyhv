@@ -80,6 +80,7 @@ import {
   apiUpdateTrialStatus,
   fetchAdminStatus,
   fetchDomainMembers,
+  fetchCtvActivityJobs,
   fetchGroups,
   fetchLedger,
   fetchMembers,
@@ -285,6 +286,8 @@ export function CourseManagerApp({ session }: { session: ClientSession }) {
   const [trialRecords, setTrialRecords] = useState<TrialRecord[]>([]);
   // Thành viên nội bộ (domain) trong nhóm học thử — dùng cho dropdown chọn CTV.
   const [domainMembers, setDomainMembers] = useState<DomainMember[]>([]);
+  // Nhật ký thao tác CTV được ghi ở server, tách khỏi queue cục bộ của admin.
+  const [ctvActivityJobs, setCtvActivityJobs] = useState<GroupJob[]>([]);
 
   // ===== Đồng bộ sổ cái nghiệp vụ (CTV/học viên/giao dịch) qua /api/ledger =====
   // stateRef: đọc state mới nhất trong callback debounce mà không bị stale closure.
@@ -401,6 +404,15 @@ export function CourseManagerApp({ session }: { session: ClientSession }) {
     }
   }, []);
 
+  const loadCtvActivityJobs = useCallback(async () => {
+    if (!isAdmin) return;
+    try {
+      setCtvActivityJobs(await fetchCtvActivityJobs());
+    } catch {
+      // Kho nhật ký chưa cấu hình hoặc tạm lỗi: giữ bản gần nhất đang hiển thị.
+    }
+  }, [isAdmin]);
+
   const refreshAdminStatus = useCallback(async () => {
     setAdminStatus({ state: "checking" });
     try {
@@ -429,6 +441,11 @@ export function CourseManagerApp({ session }: { session: ClientSession }) {
     if (!hydrated || !isAdmin) return;
     void loadDomainMembers();
   }, [hydrated, isAdmin, loadDomainMembers]);
+
+  useEffect(() => {
+    if (!hydrated || !isAdmin) return;
+    void loadCtvActivityJobs();
+  }, [hydrated, isAdmin, loadCtvActivityJobs]);
 
   useEffect(() => {
     try {
@@ -489,6 +506,7 @@ export function CourseManagerApp({ session }: { session: ClientSession }) {
     const onFocus = () => {
       void refreshLedger();
       void loadTrialRecords();
+      void loadCtvActivityJobs();
     };
     window.addEventListener("focus", onFocus);
     const timer = setInterval(onFocus, 20000);
@@ -496,7 +514,7 @@ export function CourseManagerApp({ session }: { session: ClientSession }) {
       window.removeEventListener("focus", onFocus);
       clearInterval(timer);
     };
-  }, [hydrated, isAdmin, refreshLedger, loadTrialRecords]);
+  }, [hydrated, isAdmin, refreshLedger, loadTrialRecords, loadCtvActivityJobs]);
 
   // CTV: tự nạp đúng các nhóm được cấp quyền (server đã lọc theo membership).
   useEffect(() => {
@@ -1663,7 +1681,15 @@ export function CourseManagerApp({ session }: { session: ClientSession }) {
               onUpdateRole={updateMemberRole}
             />
           ) : null}
-          {activeView === "jobs" ? <JobsView state={state} onRetryJob={retryJob} onCompleteJob={completeJob} /> : null}
+          {activeView === "jobs" ? (
+            <JobsView
+              state={state}
+              activityJobs={ctvActivityJobs}
+              onRefresh={loadCtvActivityJobs}
+              onRetryJob={retryJob}
+              onCompleteJob={completeJob}
+            />
+          ) : null}
           {activeView === "settings" ? (
             <SettingsView
               state={state}
@@ -3369,50 +3395,99 @@ function ExpenseModal({
 
 function JobsView({
   state,
+  activityJobs,
+  onRefresh,
   onRetryJob,
   onCompleteJob,
 }: {
   state: AppState;
+  activityJobs: GroupJob[];
+  onRefresh: () => void;
   onRetryJob: (id: string) => void;
   onCompleteJob: (id: string) => void;
 }) {
-  const groupMap = byId(state.groups);
+  const jobs = useMemo(() => {
+    const merged = new Map<string, GroupJob>();
+    [...activityJobs, ...state.jobs].forEach((job) => merged.set(job.id, job));
+    return Array.from(merged.values()).sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  }, [activityJobs, state.jobs]);
+  const ctvJobCount = jobs.filter((job) => job.actorRole === "ctv").length;
+
+  function actorLabel(job: GroupJob) {
+    const knownCtv = job.actorEmail
+      ? state.ctvs.find(
+          (ctv) => ctv.email.trim().toLowerCase() === job.actorEmail?.trim().toLowerCase(),
+        )
+      : undefined;
+    return job.actorName?.trim() || knownCtv?.name || (job.actorRole === "ctv" ? "CTV" : "Admin / hệ thống");
+  }
+
+  function jobTime(value: string) {
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return value;
+    return new Intl.DateTimeFormat("vi-VN", {
+      day: "2-digit",
+      month: "2-digit",
+      year: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+    }).format(date);
+  }
 
   return (
     <>
-      <PageTitle title="Automation / Jobs" subtitle="Queue add/remove Google Group và trạng thái Admin SDK." />
+      <div className="page-heading">
+        <div>
+          <h1>Nhật ký công việc</h1>
+          <p>Theo dõi thao tác Google Group của admin và CTV, gồm người làm, đối tượng và kết quả.</p>
+        </div>
+        <button className="button secondary" type="button" onClick={onRefresh}>
+          <RefreshCw size={17} />
+          <span>Làm mới</span>
+        </button>
+      </div>
       <section className="panel">
-        {state.jobs.length ? (
+        <PanelHeader
+          title="Hoạt động gần nhất"
+          action={`${ctvJobCount} thao tác từ CTV · ${jobs.length} tổng cộng`}
+        />
+        {jobs.length ? (
           <DataTable className="jobs-table">
             <thead>
               <tr>
-                <th>Loại job</th>
-                <th>Gmail</th>
+                <th>Người thực hiện</th>
+                <th>Công việc</th>
+                <th>Học viên</th>
                 <th>Nhóm</th>
-                <th>Trạng thái</th>
-                <th>Lần thử</th>
-                <th>Lỗi</th>
+                <th>Kết quả</th>
+                <th>Thời gian</th>
+                <th>Chi tiết</th>
                 <th></th>
               </tr>
             </thead>
             <tbody>
-              {state.jobs.map((job) => (
+              {jobs.map((job) => (
                 <tr key={job.id}>
-                  <td data-label="Loại job">{jobLabel(job)}</td>
-                  <td data-label="Gmail">{job.studentGmail ?? "-"}</td>
+                  <td data-label="Người thực hiện">
+                    <strong>{actorLabel(job)}</strong>
+                    <span className="table-subtext">{job.actorEmail || (job.actorRole === "ctv" ? "CTV" : "Admin")}</span>
+                  </td>
+                  <td data-label="Công việc">{jobLabel(job)}</td>
+                  <td data-label="Học viên">{job.studentGmail ?? "-"}</td>
                   <td data-label="Nhóm">{jobGroupLabel(state, job)}</td>
-                  <td data-label="Trạng thái">
+                  <td data-label="Kết quả">
                     <JobBadge status={job.status} />
                   </td>
-                  <td data-label="Lần thử">{job.attempts}</td>
-                  <td data-label="Lỗi">{job.error ?? "-"}</td>
+                  <td data-label="Thời gian">{jobTime(job.finishedAt || job.createdAt)}</td>
+                  <td data-label="Chi tiết">{job.error ?? job.detail ?? "-"}</td>
                   <td className="row-actions">
-                    {job.status === "failed" || job.status === "needs_session" ? (
+                    {job.origin !== "ctv_activity" &&
+                    (job.status === "failed" || job.status === "needs_session") ? (
                       <button className="mini-button" type="button" onClick={() => onRetryJob(job.id)}>
                         Retry
                       </button>
                     ) : null}
-                    {job.status !== "done" ? (
+                    {job.origin !== "ctv_activity" && job.status !== "done" ? (
                       <button className="mini-button ghost" type="button" onClick={() => onCompleteJob(job.id)}>
                         Done
                       </button>

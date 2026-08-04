@@ -100,6 +100,14 @@ export function jobGroupLabel(state: AppState, job: GroupJob, fallback = "-") {
     : undefined;
   if (directGroup) return directGroup.name;
 
+  const recordedGroupEmail = job.groupEmail?.trim().toLowerCase();
+  if (recordedGroupEmail) {
+    const recordedGroup = state.groups.find(
+      (group) => group.groupEmail.trim().toLowerCase() === recordedGroupEmail,
+    );
+    return recordedGroup?.name || job.groupEmail || fallback;
+  }
+
   const gmail = job.studentGmail?.trim().toLowerCase();
   if (!gmail) return fallback;
 

@@ -8,6 +8,7 @@ import {
   getDirectory,
 } from "@/lib/google-admin";
 import { rejectCrossSiteMutation, requireGroupAccess, requireSession } from "@/lib/api-guard";
+import { recordCtvActivity } from "@/lib/activity-store";
 import { KvStoreError } from "@/lib/kv";
 import {
   TrialStoreError,
@@ -123,8 +124,29 @@ export async function POST(request: Request) {
       ctvName: attributedName,
     });
 
+    await recordCtvActivity(session, {
+      type: "add_member",
+      groupEmail: groupKey,
+      studentGmail: email,
+      status: "done",
+      detail: body.trialCourse?.trim()
+        ? `Thêm học thử: ${body.trialCourse.trim()}`
+        : "Thêm thành viên học thử",
+    });
+
     return NextResponse.json({ member, record }, { status: 201 });
   } catch (error) {
+    const { message } = describeApiError(error);
+    await recordCtvActivity(session, {
+      type: "add_member",
+      groupEmail: groupKey,
+      studentGmail: email,
+      status: "failed",
+      error: message,
+      detail: body.trialCourse?.trim()
+        ? `Thêm học thử: ${body.trialCourse.trim()}`
+        : "Thêm thành viên học thử",
+    });
     return handleError(error);
   }
 }
@@ -154,10 +176,34 @@ export async function PATCH(request: Request) {
   try {
     const ok = await updateTrialStatus(groupKey, email, status);
     if (!ok) {
+      await recordCtvActivity(session, {
+        type: "update_trial_status",
+        groupEmail: groupKey,
+        studentGmail: email,
+        status: "failed",
+        error: "Không tìm thấy record học thử.",
+        detail: `Chuyển trạng thái thành ${status}`,
+      });
       return NextResponse.json({ error: "Không tìm thấy record học thử." }, { status: 404 });
     }
+    await recordCtvActivity(session, {
+      type: "update_trial_status",
+      groupEmail: groupKey,
+      studentGmail: email,
+      status: "done",
+      detail: `Chuyển trạng thái thành ${status}`,
+    });
     return NextResponse.json({ ok: true });
   } catch (error) {
+    const { message } = describeApiError(error);
+    await recordCtvActivity(session, {
+      type: "update_trial_status",
+      groupEmail: groupKey,
+      studentGmail: email,
+      status: "failed",
+      error: message,
+      detail: `Chuyển trạng thái thành ${status}`,
+    });
     return handleError(error);
   }
 }

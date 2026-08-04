@@ -14,7 +14,12 @@ export type EnrollmentType = "paid" | "trial";
 export type TrialResult = "dang_thu" | "da_dang_ky" | "khong_dang_ky";
 export type PaymentStatus = "pending" | "received";
 export type JobStatus = "queued" | "running" | "done" | "failed" | "needs_session";
-export type JobType = "add_member" | "remove_member" | "update_role" | "verify_session";
+export type JobType =
+  | "add_member"
+  | "remove_member"
+  | "update_role"
+  | "update_trial_status"
+  | "verify_session";
 export type GroupRole = "owner" | "manager" | "member";
 export type ExpenseCategory =
   | "material"
@@ -91,10 +96,16 @@ export interface GroupJob {
   id: string;
   type: JobType;
   groupId?: string;
+  groupEmail?: string;
   studentGmail?: string;
   status: JobStatus;
   attempts: number;
   error?: string;
+  detail?: string;
+  actorEmail?: string;
+  actorName?: string;
+  actorRole?: "admin" | "ctv";
+  origin?: "automation" | "ctv_activity";
   createdAt: string;
   finishedAt?: string;
 }

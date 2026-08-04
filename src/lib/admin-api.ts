@@ -231,6 +231,13 @@ export async function saveLedger(
   return jsonOrThrow<LedgerWriteResult>(res);
 }
 
+/** Nhật ký thao tác CTV được ghi ở server để admin theo dõi trong màn Jobs. */
+export async function fetchCtvActivityJobs(): Promise<GroupJob[]> {
+  const res = await fetch("/api/jobs", { cache: "no-store" });
+  const data = await jsonOrThrow<{ jobs: GroupJob[] }>(res);
+  return data.jobs;
+}
+
 // ===== Mapping giữa DTO của Admin SDK và model của app =====
 
 export function roleToApi(role: GroupRole): ApiGroupRole {

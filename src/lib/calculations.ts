@@ -288,6 +288,7 @@ export function jobLabel(job: GroupJob) {
   if (job.type === "verify_session") return "Kiểm tra Admin SDK";
   if (job.type === "remove_member") return "Xóa khỏi Google Group";
   if (job.type === "update_role") return "Đổi role thành viên";
+  if (job.type === "update_trial_status") return "Cập nhật học thử";
   return "Thêm vào Google Group";
 }
 

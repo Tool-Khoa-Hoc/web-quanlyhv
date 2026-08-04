@@ -7,6 +7,7 @@ import {
   getDirectory,
 } from "@/lib/google-admin";
 import { rejectCrossSiteMutation, requireGroupAccess } from "@/lib/api-guard";
+import { recordCtvActivity } from "@/lib/activity-store";
 import type { ApiGroupRole, ApiMember } from "@/lib/admin-types";
 
 export const dynamic = "force-dynamic";
@@ -60,12 +61,14 @@ export async function POST(
   if (session instanceof NextResponse) return session;
   const crossSite = rejectCrossSiteMutation(request);
   if (crossSite) return crossSite;
+  const body = (await request.json().catch(() => ({}))) as { email?: string; role?: string };
+  const email = body.email?.trim().toLowerCase() ?? "";
+  const decodedGroupKey = decodeURIComponent(groupKey).trim();
+  if (!email) {
+    return NextResponse.json({ error: "Thiếu email thành viên." }, { status: 400 });
+  }
+
   try {
-    const body = (await request.json()) as { email?: string; role?: string };
-    const email = body.email?.trim();
-    if (!email) {
-      return NextResponse.json({ error: "Thiếu email thành viên." }, { status: 400 });
-    }
     let role = (body.role?.toUpperCase() as ApiGroupRole) || "MEMBER";
     if (!VALID_ROLES.includes(role)) {
       return NextResponse.json({ error: `Role không hợp lệ: ${role}` }, { status: 400 });
@@ -75,7 +78,6 @@ export async function POST(
       role = "MEMBER";
     }
 
-    const decodedGroupKey = decodeURIComponent(groupKey);
     const directory = getDirectory();
     const addedMember = await ensureGroupMember(directory, decodedGroupKey, email, role);
     await ensureSheetHocDthtMember(directory, email, decodedGroupKey);
@@ -87,9 +89,23 @@ export async function POST(
       status: addedMember.status ?? "",
       type: addedMember.type ?? "",
     };
+    await recordCtvActivity(session, {
+      type: "add_member",
+      groupEmail: decodedGroupKey,
+      studentGmail: email,
+      status: "done",
+      detail: "Thêm thành viên với vai trò MEMBER",
+    });
     return NextResponse.json({ member }, { status: 201 });
   } catch (error) {
     const { status, message } = describeApiError(error);
+    await recordCtvActivity(session, {
+      type: "add_member",
+      groupEmail: decodedGroupKey,
+      studentGmail: email,
+      status: "failed",
+      error: message,
+    });
     return NextResponse.json({ error: message }, { status });
   }
 }
