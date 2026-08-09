@@ -2247,6 +2247,14 @@ function CashflowChart({
   const slot = 84 / data.length;
   const barWidth = Math.min(4, slot * 0.28);
   const centers = data.map((_, index) => 8 + slot * (index + 0.5));
+  const incomePoints =
+    data.length === 1
+      ? `42,${y(data[0].income)} 58,${y(data[0].income)}`
+      : data.map((item, index) => `${centers[index]},${y(item.income)}`).join(" ");
+  const incomeArea =
+    data.length === 1
+      ? `M42 ${zeroY} L42 ${y(data[0].income)} L58 ${y(data[0].income)} L58 ${zeroY} Z`
+      : `M${centers[0]} ${zeroY} L${incomePoints.replaceAll(" ", " L")} L${centers.at(-1)} ${zeroY} Z`;
   const netPoints =
     data.length === 1
       ? `42,${y(data[0].net)} 58,${y(data[0].net)}`
@@ -2255,9 +2263,13 @@ function CashflowChart({
   return (
     <div className="bars-chart">
       <svg viewBox="0 0 100 100" role="img" aria-label="Biểu đồ thu, chi và dòng tiền ròng">
-        <path d={`M6 ${zeroY} H94`} className="chart-axis" />
         <path d="M6 14 H94" className="chart-grid" />
+        <path d="M6 31 H94" className="chart-grid" />
         <path d="M6 47 H94" className="chart-grid" />
+        <path d="M6 64 H94" className="chart-grid" />
+        <path d={`M6 ${zeroY} H94`} className="chart-axis" />
+        <path d={incomeArea} className="bar-income-area" />
+        <polyline points={incomePoints} className="bar-income-line" />
         {data.map((item, index) => {
           const incomeY = y(item.income);
           const expenseY = y(item.expense);
@@ -4597,6 +4609,7 @@ function TrendChart({ data }: { data: TrendPoint[] }) {
   const yAt = (value: number) => baseY - (value / max) * (baseY - topY);
 
   const line = visibleData.map((item, index) => `${xAt(index)},${yAt(item.share)}`).join(" ");
+  const area = `M${xAt(0)} ${baseY} L${line.replaceAll(" ", " L")} L${xAt(visibleData.length - 1)} ${baseY} Z`;
 
   const totalShare = visibleData.reduce((sum, item) => sum + item.share, 0);
   const totalRevenue = visibleData.reduce((sum, item) => sum + item.revenue, 0);
@@ -4701,6 +4714,7 @@ function TrendChart({ data }: { data: TrendPoint[] }) {
               <path d={`M${padX} ${topY} H${100 - padX}`} className="chart-grid light" />
               <path d={`M${padX} ${(topY + baseY) / 2} H${100 - padX}`} className="chart-grid" />
               <path d={`M${padX} ${baseY} H${100 - padX}`} className="chart-axis" />
+              <path d={area} className="chart-area" />
               <polyline points={line} className="chart-line" />
               {activeItem ? (
                 <>
