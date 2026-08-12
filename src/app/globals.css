@@ -4932,3 +4932,336 @@ body {
     flex-basis: 52px;
   }
 }
+
+/* CTV revenue leaderboard */
+.revenue-ranking-panel {
+  display: grid;
+  gap: 18px;
+  overflow: hidden;
+}
+
+.ranking-heading,
+.ranking-title-wrap,
+.ranking-period-control,
+.ranking-table-person,
+.ranking-progress-cell {
+  display: flex;
+  align-items: center;
+}
+
+.ranking-heading {
+  justify-content: space-between;
+  gap: 18px;
+}
+
+.ranking-title-wrap {
+  min-width: 0;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.ranking-icon {
+  display: grid;
+  flex: 0 0 40px;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  border: 1px solid rgba(200, 155, 60, 0.28);
+  border-radius: 12px;
+  background: #fff8e8;
+  color: #b27a18;
+}
+
+.ranking-panel-header {
+  margin: 0 0 4px;
+}
+
+.ranking-title-wrap p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.ranking-period-control {
+  flex: 0 0 auto;
+  gap: 8px;
+  color: var(--muted);
+}
+
+.ranking-period-control .segmented {
+  background: var(--surface-2);
+}
+
+.ranking-summary {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.ranking-summary > div {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+  padding: 13px 15px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: linear-gradient(145deg, #fbfdfb, #f5f8f4);
+}
+
+.ranking-summary span {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.ranking-summary strong {
+  overflow: hidden;
+  color: var(--text);
+  font-family: var(--font-display), var(--font-be-vietnam), sans-serif;
+  font-size: 18px;
+  font-variant-numeric: tabular-nums;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ranking-podium {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.ranking-podium-card {
+  position: relative;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 4px 10px;
+  min-width: 0;
+  padding: 15px;
+  overflow: hidden;
+  border: 1px solid #dfe9e1;
+  border-radius: 14px;
+  background: #f7faf6;
+}
+
+.ranking-podium-card::after {
+  position: absolute;
+  right: -35px;
+  bottom: -55px;
+  width: 125px;
+  height: 125px;
+  border: 1px solid rgba(200, 155, 60, 0.15);
+  border-radius: 50%;
+  content: "";
+  pointer-events: none;
+}
+
+.ranking-podium-card.rank-1 {
+  border-color: #244c3e;
+  background: linear-gradient(145deg, #173b31, #10261f);
+  color: #f8fcf8;
+  box-shadow: 0 12px 24px rgba(16, 38, 31, 0.16);
+}
+
+.ranking-medal {
+  display: grid;
+  grid-row: span 2;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  background: #f4e6bd;
+  color: #8b6418;
+  font-family: var(--font-display), sans-serif;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.rank-2 .ranking-medal,
+.rank-3 .ranking-medal {
+  background: #e8eee9;
+  color: #52645b;
+}
+
+.ranking-avatar {
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  border: 2px solid rgba(255, 255, 255, 0.75);
+  border-radius: 50%;
+  background: #dcebe0;
+  color: #1e5a45;
+  font-family: var(--font-display), sans-serif;
+  font-weight: 700;
+}
+
+.ranking-podium-card .ranking-avatar {
+  grid-row: 1 / span 2;
+}
+
+.ranking-person,
+.ranking-table-person > div:last-child {
+  display: grid;
+  min-width: 0;
+  gap: 2px;
+}
+
+.ranking-person strong,
+.ranking-table-person strong {
+  overflow: hidden;
+  font-size: 13px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ranking-person span,
+.ranking-table-person span,
+.ranking-podium-meta,
+.ranking-received {
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rank-1 .ranking-person span,
+.rank-1 .ranking-podium-meta {
+  color: #b7ccc4;
+}
+
+.ranking-podium-money {
+  grid-column: 2;
+  margin-top: 7px;
+  color: var(--text);
+  font-family: var(--font-display), var(--font-be-vietnam), sans-serif;
+  font-size: 17px;
+  font-variant-numeric: tabular-nums;
+}
+
+.rank-1 .ranking-podium-money {
+  color: #f7d98c;
+}
+
+.ranking-podium-meta {
+  grid-column: 2;
+}
+
+.ranking-table-wrap {
+  overflow-x: auto;
+  border: 1px solid var(--border);
+  border-radius: 13px;
+}
+
+.ranking-table {
+  min-width: 760px;
+}
+
+.ranking-table th:first-child,
+.ranking-table td:first-child {
+  width: 48px;
+  text-align: center;
+}
+
+.ranking-table-person {
+  gap: 9px;
+  min-width: 190px;
+}
+
+.ranking-avatar.small {
+  flex: 0 0 30px;
+  width: 30px;
+  height: 30px;
+  border: 0;
+  font-size: 12px;
+}
+
+.ranking-number {
+  display: inline-grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 8px;
+  background: var(--surface-2);
+  color: var(--muted);
+  font-family: var(--font-display), sans-serif;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.ranking-number.top {
+  background: #fff4d6;
+  color: #986e1b;
+}
+
+.ranking-table td strong,
+.ranking-progress-cell strong {
+  font-variant-numeric: tabular-nums;
+}
+
+.ranking-received {
+  display: block;
+  margin-top: 3px;
+}
+
+.ranking-progress-cell {
+  min-width: 150px;
+  gap: 8px;
+}
+
+.ranking-progress-track {
+  flex: 1;
+  height: 7px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: #e5eee7;
+}
+
+.ranking-progress-track span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, #9ac7a8, #277554);
+}
+
+.ranking-progress-cell > strong {
+  width: 34px;
+  color: #4d6257;
+  font-size: 11px;
+  text-align: right;
+}
+
+@media (max-width: 760px) {
+  .ranking-heading {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .ranking-period-control {
+    justify-content: space-between;
+  }
+
+  .ranking-period-control .segmented {
+    flex: 1;
+  }
+
+  .ranking-period-control .segmented button {
+    flex: 1;
+  }
+
+  .ranking-summary {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .ranking-summary > div:last-child {
+    grid-column: 1 / -1;
+  }
+
+  .ranking-podium {
+    grid-template-columns: 1fr;
+  }
+
+  .ranking-podium-card.rank-1 {
+    order: -1;
+  }
+}

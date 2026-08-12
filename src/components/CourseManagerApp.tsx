@@ -3,6 +3,7 @@
 import {
   AlertTriangle,
   ArrowUpRight,
+  CalendarDays,
   CheckCircle2,
   ChevronRight,
   CircleDollarSign,
@@ -28,6 +29,7 @@ import {
   ShieldCheck,
   SlidersHorizontal,
   Trash2,
+  Trophy,
   TrendingUp,
   UserPlus,
   Users,
@@ -2540,6 +2542,8 @@ function CtvView({
         </button>
       </div>
 
+      <RevenueRanking state={state} />
+
       <section className="panel">
         <PanelHeader
           title="CTV theo tài khoản domain"
@@ -2661,6 +2665,214 @@ function CtvView({
         />
       ) : null}
     </>
+  );
+}
+
+type RevenueRankingPeriod = "week" | "month";
+
+type RevenueRankingRow = {
+  ctv: Ctv;
+  revenue: number;
+  commission: number;
+  received: number;
+  orders: number;
+};
+
+function rankingDate(value: Date) {
+  const year = value.getFullYear();
+  const month = String(value.getMonth() + 1).padStart(2, "0");
+  const day = String(value.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+function rankingRange(period: RevenueRankingPeriod) {
+  const today = new Date();
+  const end = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+  const start =
+    period === "month"
+      ? new Date(end.getFullYear(), end.getMonth(), 1)
+      : new Date(end.getFullYear(), end.getMonth(), end.getDate() - ((end.getDay() + 6) % 7));
+
+  return { start: rankingDate(start), end: rankingDate(end) };
+}
+
+function rangeDateLabel(value: string) {
+  const [year, month, day] = value.split("-").map(Number);
+  return new Intl.DateTimeFormat("vi-VN", { day: "2-digit", month: "2-digit" }).format(
+    new Date(year, month - 1, day),
+  );
+}
+
+function RevenueRanking({ state }: { state: AppState }) {
+  const [period, setPeriod] = useState<RevenueRankingPeriod>("week");
+  const range = rankingRange(period);
+  const paid = paidEnrollments(state);
+  const ranking = state.ctvs
+    .map<RevenueRankingRow>((ctv) => {
+      const rows = paid.filter(
+        (item) => item.ctvId === ctv.id && item.date >= range.start && item.date <= range.end,
+      );
+      return {
+        ctv,
+        revenue: rows.reduce((sum, item) => sum + item.tuition, 0),
+        commission: rows.reduce((sum, item) => sum + item.ownerShare, 0),
+        received: rows
+          .filter((item) => item.paymentStatus === "received")
+          .reduce((sum, item) => sum + item.ownerShare, 0),
+        orders: rows.length,
+      };
+    })
+    .sort(
+      (a, b) =>
+        b.revenue - a.revenue ||
+        b.commission - a.commission ||
+        a.ctv.name.localeCompare(b.ctv.name),
+    );
+  const activeRanking = ranking.filter((row) => row.orders > 0);
+  const leaderRevenue = activeRanking[0]?.revenue ?? 0;
+  const totalRevenue = activeRanking.reduce((sum, row) => sum + row.revenue, 0);
+  const totalCommission = activeRanking.reduce((sum, row) => sum + row.commission, 0);
+  const periodLabel = period === "week" ? "tuần này" : "tháng này";
+  const rowsToShow = activeRanking.length ? activeRanking : ranking;
+
+  return (
+    <section className="panel revenue-ranking-panel">
+      <div className="ranking-heading">
+        <div className="ranking-title-wrap">
+          <div className="ranking-icon" aria-hidden="true">
+            <Trophy size={19} />
+          </div>
+          <div>
+            <div className="panel-header ranking-panel-header">
+              <h2>Xếp hạng doanh thu CTV</h2>
+              <span>{activeRanking.length} CTV có doanh số</span>
+            </div>
+            <p>
+              Tiến độ theo doanh số học phí · {rangeDateLabel(range.start)} - {rangeDateLabel(range.end)}
+            </p>
+          </div>
+        </div>
+        <div className="ranking-period-control" role="group" aria-label="Khoảng thời gian xếp hạng">
+          <CalendarDays size={15} aria-hidden="true" />
+          <div className="segmented">
+            {([
+              ["week", "Tuần"],
+              ["month", "Tháng"],
+            ] as const).map(([value, label]) => (
+              <button
+                key={value}
+                type="button"
+                className={period === value ? "active" : ""}
+                aria-pressed={period === value}
+                onClick={() => setPeriod(value)}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      <div className="ranking-summary">
+        <div>
+          <span>Doanh số {periodLabel}</span>
+          <strong>{currency(totalRevenue)}</strong>
+        </div>
+        <div>
+          <span>Hoa hồng CTV</span>
+          <strong>{currency(totalCommission)}</strong>
+        </div>
+        <div>
+          <span>Người dẫn đầu</span>
+          <strong>{activeRanking[0]?.ctv.name ?? "Chưa có dữ liệu"}</strong>
+        </div>
+      </div>
+
+      {activeRanking.length ? (
+        <>
+          <div className="ranking-podium" aria-label={`Top 3 CTV ${periodLabel}`}>
+            {activeRanking.slice(0, 3).map((row, index) => {
+              const rank = index + 1;
+              return (
+                <article className={`ranking-podium-card rank-${rank}`} key={row.ctv.id}>
+                  <div className="ranking-medal">{rank === 1 ? <Trophy size={17} /> : rank}</div>
+                  <div className="ranking-avatar">
+                    {row.ctv.name.trim().slice(0, 1).toUpperCase() || "C"}
+                  </div>
+                  <div className="ranking-person">
+                    <strong>{row.ctv.name}</strong>
+                    <span>{row.ctv.code}</span>
+                  </div>
+                  <strong className="ranking-podium-money">{currency(row.revenue)}</strong>
+                  <span className="ranking-podium-meta">
+                    {row.orders} đơn · {currency(row.commission)} hoa hồng
+                  </span>
+                </article>
+              );
+            })}
+          </div>
+
+          <div className="ranking-table-wrap">
+            <table className="data-table ranking-table">
+              <thead>
+                <tr>
+                  <th>#</th>
+                  <th>CTV</th>
+                  <th className="numeric">Doanh số</th>
+                  <th className="numeric">Hoa hồng</th>
+                  <th className="numeric">Đơn</th>
+                  <th>Tiến độ</th>
+                </tr>
+              </thead>
+              <tbody>
+                {rowsToShow.map((row, index) => {
+                  const progress = leaderRevenue ? Math.round((row.revenue / leaderRevenue) * 100) : 0;
+                  const receivedRate = row.commission ? Math.round((row.received / row.commission) * 100) : 0;
+                  return (
+                    <tr key={row.ctv.id}>
+                      <td>
+                        <span className={index < 3 ? "ranking-number top" : "ranking-number"}>
+                          {index + 1}
+                        </span>
+                      </td>
+                      <td>
+                        <div className="ranking-table-person">
+                          <div className="ranking-avatar small">
+                            {row.ctv.name.trim().slice(0, 1).toUpperCase() || "C"}
+                          </div>
+                          <div>
+                            <strong>{row.ctv.name}</strong>
+                            <span>{row.ctv.email || row.ctv.code}</span>
+                          </div>
+                        </div>
+                      </td>
+                      <td className="numeric money-cell">
+                        <strong>{currency(row.revenue)}</strong>
+                      </td>
+                      <td className="numeric money-cell">
+                        {currency(row.commission)}
+                        <small className="ranking-received">{receivedRate}% đã thu</small>
+                      </td>
+                      <td className="numeric">{row.orders}</td>
+                      <td>
+                        <div className="ranking-progress-cell">
+                          <div className="ranking-progress-track" aria-label={`${progress}% so với người dẫn đầu`}>
+                            <span style={{ width: `${progress}%` }} />
+                          </div>
+                          <strong>{progress}%</strong>
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </>
+      ) : (
+        <EmptyState label={`Chưa có giao dịch trả phí trong ${periodLabel}.`} />
+      )}
+    </section>
   );
 }
 
