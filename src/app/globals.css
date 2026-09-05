@@ -2406,10 +2406,6 @@ button:disabled {
     padding: 16px 14px calc(92px + env(safe-area-inset-bottom));
   }
 
-  .no-mobile-nav .main {
-    padding-bottom: calc(24px + env(safe-area-inset-bottom));
-  }
-
   .topbar {
     align-items: stretch;
     flex-direction: column;
@@ -3427,8 +3423,16 @@ body {
 }
 
 .app-shell {
-  grid-template-columns: 252px minmax(0, 1fr);
   min-height: 100dvh;
+}
+
+/* Cột sidebar CHỈ tồn tại ở desktop. Bọc trong media query để không ghi đè
+   layout 1 cột của mobile (khối @media (max-width: 1100px) nằm TRƯỚC khối này
+   trong file, nên nếu để trần thì mobile bị chèn lại cột 252px). */
+@media (min-width: 1101px) {
+  .app-shell {
+    grid-template-columns: 252px minmax(0, 1fr);
+  }
 }
 
 .sidebar {
@@ -4284,8 +4288,11 @@ body {
   font-family: var(--font-be-vietnam), "Segoe UI", sans-serif;
 }
 
-.app-shell {
-  grid-template-columns: 240px minmax(0, 1fr);
+/* Cột sidebar CHỈ ở desktop — xem ghi chú ở khối .app-shell phía trên. */
+@media (min-width: 1101px) {
+  .app-shell {
+    grid-template-columns: 240px minmax(0, 1fr);
+  }
 }
 
 .sidebar {
@@ -5263,5 +5270,266 @@ body {
 
   .ranking-podium-card.rank-1 {
     order: -1;
+  }
+}
+
+/* ===========================================================================
+   LỚP RESPONSIVE CUỐI CÙNG — luôn để ở CUỐI FILE
+   ---------------------------------------------------------------------------
+   File này gồm nhiều "lớp theme" được thêm dần (~L1: đầu file, ~L2: từ .app-shell
+   thứ hai, ~L3: từ khối .sidebar cuối). Mỗi lớp khai báo lại cùng selector nhưng
+   KHÔNG nằm trong media query, nên nó ghi đè mọi override mobile của lớp trước
+   (cùng specificity → khai báo sau thắng).
+   Đó chính là nguyên nhân bug "mobile chỉ hiện nửa bên trái": lớp cuối khai báo
+   .app-shell { grid-template-columns: 240px minmax(0,1fr) } ngoài media query,
+   nên điện thoại vẫn chừa 240px cho sidebar đã display:none.
+   => Mọi luật riêng cho mobile đặt Ở ĐÂY, và các luật chỉ dành cho desktop phải
+   bọc trong @media (min-width: 1101px).
+   =========================================================================== */
+
+/* -- Chốt lại layout khung: mobile luôn 1 cột -- */
+@media (max-width: 1100px) {
+  .app-shell {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .main {
+    min-width: 0;
+    max-width: 100%;
+  }
+}
+
+/* -- Thanh điều hướng dưới: nhãn 1 dòng, không làm phình cột -- */
+@media (max-width: 1100px) {
+  .mobile-nav-item {
+    min-width: 0;
+    padding: 0 2px;
+  }
+
+  .mobile-nav-item span {
+    display: block;
+    max-width: 100%;
+    overflow: hidden;
+    font-size: 10.5px;
+    line-height: 1.25;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .mobile-nav-item svg {
+    flex: 0 0 auto;
+  }
+}
+/* -- Sheet "Thêm": nơi truy cập các view không ghim ở thanh dưới + Đăng xuất -- */
+.mobile-sheet-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: flex;
+  align-items: flex-end;
+  padding: 0;
+  background: rgba(15, 30, 25, 0.44);
+  backdrop-filter: blur(3px);
+  animation: mobile-sheet-fade 160ms ease;
+}
+
+.mobile-sheet {
+  width: 100%;
+  max-height: 82dvh;
+  overflow-y: auto;
+  display: grid;
+  gap: 14px;
+  padding: 16px 16px calc(18px + env(safe-area-inset-bottom));
+  border-radius: 20px 20px 0 0;
+  background: var(--surface, #ffffff);
+  box-shadow: 0 -18px 48px rgba(15, 40, 33, 0.22);
+  animation: mobile-sheet-rise 200ms cubic-bezier(0.22, 0.68, 0.32, 1);
+}
+
+@keyframes mobile-sheet-fade {
+  from {
+    opacity: 0;
+  }
+}
+
+@keyframes mobile-sheet-rise {
+  from {
+    transform: translateY(14%);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .mobile-sheet-backdrop,
+  .mobile-sheet {
+    animation: none;
+  }
+}
+.mobile-sheet-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--border);
+}
+
+.mobile-sheet-user {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  min-width: 0;
+}
+
+.mobile-sheet-user > div {
+  min-width: 0;
+}
+
+.mobile-sheet-user strong,
+.mobile-sheet-user span {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mobile-sheet-user strong {
+  font-size: 14px;
+}
+
+.mobile-sheet-user span {
+  margin-top: 2px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.mobile-sheet-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+.mobile-sheet-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 52px;
+  min-width: 0;
+  padding: 0 12px;
+  border: 1px solid var(--border);
+  border-radius: 13px;
+  background: var(--surface-2, #f7f9fc);
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 700;
+  text-align: left;
+}
+
+.mobile-sheet-item svg {
+  flex: 0 0 auto;
+  color: var(--muted);
+}
+
+.mobile-sheet-item span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mobile-sheet-item.active {
+  border-color: transparent;
+  background: var(--blue-soft);
+  color: var(--blue-strong);
+}
+
+.mobile-sheet-item.active svg {
+  color: currentColor;
+}
+
+.mobile-sheet-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+}
+
+.mobile-sheet-foot .button.ghost {
+  display: inline-flex;
+  min-height: 46px;
+  text-decoration: none;
+}
+/* -- Bảng rộng: gợi ý "còn nội dung bên phải" --
+   Bóng bên phải chỉ hiện khi còn phần chưa cuộn tới (2 lớp phủ trắng dùng
+   background-attachment: local nên trôi theo nội dung, 2 lớp bóng dùng scroll
+   nên đứng yên ở mép). Trước đây bảng min-width 820px trong khung 320px mà
+   không có dấu hiệu nào → người dùng tưởng mất cột bên phải. */
+.table-wrap,
+.ranking-table-wrap {
+  background-color: #ffffff;
+  background-image:
+    linear-gradient(to right, #ffffff 32%, rgba(255, 255, 255, 0)),
+    linear-gradient(to left, #ffffff 32%, rgba(255, 255, 255, 0)),
+    radial-gradient(farthest-side at 0 50%, rgba(18, 49, 43, 0.16), rgba(18, 49, 43, 0)),
+    radial-gradient(farthest-side at 100% 50%, rgba(18, 49, 43, 0.16), rgba(18, 49, 43, 0));
+  background-position: left center, right center, left center, right center;
+  background-repeat: no-repeat;
+  background-size: 36px 100%, 36px 100%, 15px 100%, 15px 100%;
+  background-attachment: local, local, scroll, scroll;
+  overscroll-behavior-x: contain;
+}
+
+@media (max-width: 680px) {
+  .data-table th,
+  .data-table td {
+    padding: 10px 8px;
+  }
+
+  /* Vùng cuộn ngang cao hơn ngón tay một chút để không bắt trượt dọc mất nét. */
+  .table-wrap {
+    scrollbar-width: thin;
+  }
+}
+/* -- Khôi phục các giá trị mobile bị lớp theme cuối (khai báo trần) ghi đè -- */
+@media (max-width: 680px) {
+  .metric-card {
+    min-height: 112px;
+    padding: 14px;
+  }
+
+  .metric-card:first-child {
+    min-height: 124px;
+  }
+
+  /* Số tiền dài (vd 128.450.000 ₫) không được tràn khỏi thẻ 2 cột. */
+  .metric-card strong {
+    font-size: clamp(16px, 5.2vw, 21px);
+    overflow-wrap: anywhere;
+  }
+
+  .metric-card:first-child strong {
+    font-size: clamp(22px, 7.6vw, 30px);
+  }
+
+  .metric-card span {
+    overflow-wrap: anywhere;
+  }
+}
+
+/* Máy hẹp (<=380px): thu nhỏ thêm để 5 ô nav và 2 cột metric vẫn thoải mái. */
+@media (max-width: 380px) {
+  .mobile-nav {
+    left: 8px;
+    right: 8px;
+    gap: 2px;
+    padding: 5px;
+  }
+
+  .mobile-nav-item span {
+    font-size: 9.5px;
+  }
+
+  .mobile-sheet-grid {
+    grid-template-columns: minmax(0, 1fr);
   }
 }

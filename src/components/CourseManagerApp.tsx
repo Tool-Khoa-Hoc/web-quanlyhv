@@ -18,6 +18,7 @@ import {
   LockKeyhole,
   LogOut,
   LucideIcon,
+  MoreHorizontal,
   Pencil,
   Plus,
   ReceiptText,
@@ -121,29 +122,36 @@ type AdminSdkState =
   | { state: "ready"; details: ApiAdminStatus }
   | { state: "error"; message: string; checkedAt: string };
 
-const navItems: Array<{ key: ViewKey; label: string; icon: LucideIcon }> = [
-  { key: "dashboard", label: "Dashboard", icon: LayoutDashboard },
+interface NavItem {
+  key: ViewKey;
+  label: string;
+  /** Nhãn ngắn cho thanh điều hướng dưới ở mobile (chỗ hẹp, không được xuống dòng). */
+  shortLabel?: string;
+  icon: LucideIcon;
+}
+
+const navItems: NavItem[] = [
+  { key: "dashboard", label: "Dashboard", shortLabel: "Tổng quan", icon: LayoutDashboard },
   { key: "transactions", label: "Giao dịch", icon: ReceiptText },
   { key: "cashflow", label: "Dòng tiền", icon: TrendingUp },
   { key: "trials", label: "Học thử", icon: FlaskConical },
   { key: "ctv", label: "CTV", icon: Users },
   { key: "students", label: "Học viên", icon: GraduationCap },
   { key: "groups", label: "Nhóm", icon: Layers },
-  { key: "student-groups", label: "Khóa sinh viên", icon: GraduationCap },
+  { key: "student-groups", label: "Khóa sinh viên", shortLabel: "Khóa SV", icon: GraduationCap },
   { key: "jobs", label: "Jobs", icon: ListChecks },
   { key: "settings", label: "Cài đặt", icon: Settings },
 ];
-const mobileNavKeys: ViewKey[] = [
-  "dashboard",
-  "transactions",
-  "trials",
-  "groups",
-  "student-groups",
-  "jobs",
-];
+
+// Thanh dưới ở mobile chỉ giữ 4 mục dùng nhiều nhất — 4 mục + nút "Thêm" là 5 ô,
+// vừa đủ rộng để nhãn không phải xuống dòng trên máy 360px.
+// Các view còn lại nằm trong sheet "Thêm" nên KHÔNG view nào bị mất trên điện thoại
+// (trước đây sidebar bị display:none nên Dòng tiền / CTV / Học viên / Cài đặt
+// và cả nút Đăng xuất đều không thể bấm được bằng điện thoại).
+const mobileNavKeys: ViewKey[] = ["dashboard", "transactions", "trials", "groups"];
 const mobileNavItems = mobileNavKeys
   .map((key) => navItems.find((item) => item.key === key))
-  .filter((item): item is (typeof navItems)[number] => Boolean(item));
+  .filter((item): item is NavItem => Boolean(item));
 
 type ModalMode = "transaction" | "trial" | null;
 
@@ -269,13 +277,16 @@ function resolveCtvByEmail(current: AppState, email: string): { state: AppState;
 export function CourseManagerApp({ session }: { session: ClientSession }) {
   const isAdmin = session.role === "admin";
   const visibleNavItems = isAdmin ? navItems : navItems.filter((item) => item.key === "groups");
-  const visibleMobileNavItems = isAdmin
-    ? mobileNavItems
-    : navItems.filter((item) => item.key === "groups");
+  // 4 mục ghim ở thanh dưới; phần còn lại đưa vào sheet "Thêm".
+  const mobileBarItems = isAdmin ? mobileNavItems : visibleNavItems;
+  const mobileSheetItems = visibleNavItems.filter(
+    (item) => !mobileBarItems.some((barItem) => barItem.key === item.key),
+  );
 
   const [state, setState] = useState<AppState>(seedState);
   const [hydrated, setHydrated] = useState(false);
   const [activeView, setActiveView] = useState<ViewKey>(isAdmin ? "dashboard" : "groups");
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [modal, setModal] = useState<ModalMode>(null);
   const [ctvFilter, setCtvFilter] = useState("all");
@@ -525,6 +536,21 @@ export function CourseManagerApp({ session }: { session: ClientSession }) {
     // syncFromGoogle là function declaration ổn định trong component; chỉ chạy 1 lần sau hydrate.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [hydrated, isAdmin]);
+
+  // Sheet "Thêm" ở mobile: Esc để đóng, và chặn scroll nền khi sheet đang mở.
+  useEffect(() => {
+    if (!mobileMenuOpen) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setMobileMenuOpen(false);
+    };
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    window.addEventListener("keydown", onKeyDown);
+    return () => {
+      window.removeEventListener("keydown", onKeyDown);
+      document.body.style.overflow = previousOverflow;
+    };
+  }, [mobileMenuOpen]);
 
   const model = useMemo(() => buildModelShape(state), [state]);
 
@@ -1472,10 +1498,14 @@ export function CourseManagerApp({ session }: { session: ClientSession }) {
     ? state.enrollments.find((item) => item.id === editingPaidId && item.type === "paid")
     : null;
 
-  const showMobileNav = visibleMobileNavItems.length > 1;
+  // Chọn view từ sheet "Thêm" thì đóng sheet luôn để lộ nội dung vừa mở.
+  function openView(view: ViewKey) {
+    setActiveView(view);
+    setMobileMenuOpen(false);
+  }
 
   return (
-    <div className={showMobileNav ? "app-shell" : "app-shell no-mobile-nav"}>
+    <div className="app-shell">
       <aside className="sidebar" aria-label="Điều hướng chính">
         <div className="brand">
           <div className="brand-mark">
@@ -1491,7 +1521,7 @@ export function CourseManagerApp({ session }: { session: ClientSession }) {
             <button
               key={item.key}
               className={activeView === item.key ? "nav-item active" : "nav-item"}
-              onClick={() => setActiveView(item.key)}
+              onClick={() => openView(item.key)}
               aria-current={activeView === item.key ? "page" : undefined}
               type="button"
             >
@@ -1704,25 +1734,48 @@ export function CourseManagerApp({ session }: { session: ClientSession }) {
         </section>
       </main>
 
-      {showMobileNav ? (
-        <nav
-          className="mobile-nav"
-          aria-label="Điều hướng mobile"
-          style={{ gridTemplateColumns: `repeat(${visibleMobileNavItems.length}, 1fr)` }}
+      <nav
+        className="mobile-nav"
+        aria-label="Điều hướng mobile"
+        style={{ gridTemplateColumns: `repeat(${mobileBarItems.length + 1}, minmax(0, 1fr))` }}
+      >
+        {mobileBarItems.map((item) => (
+          <button
+            key={item.key}
+            className={activeView === item.key ? "mobile-nav-item active" : "mobile-nav-item"}
+            onClick={() => openView(item.key)}
+            aria-current={activeView === item.key ? "page" : undefined}
+            type="button"
+          >
+            <item.icon size={19} aria-hidden="true" />
+            <span>{item.shortLabel ?? item.label}</span>
+          </button>
+        ))}
+        <button
+          className={
+            mobileMenuOpen || mobileSheetItems.some((item) => item.key === activeView)
+              ? "mobile-nav-item active"
+              : "mobile-nav-item"
+          }
+          onClick={() => setMobileMenuOpen((open) => !open)}
+          aria-expanded={mobileMenuOpen}
+          aria-haspopup="menu"
+          type="button"
         >
-          {visibleMobileNavItems.map((item) => (
-            <button
-              key={item.key}
-              className={activeView === item.key ? "mobile-nav-item active" : "mobile-nav-item"}
-              onClick={() => setActiveView(item.key)}
-              aria-current={activeView === item.key ? "page" : undefined}
-              type="button"
-            >
-              <item.icon size={19} aria-hidden="true" />
-              <span>{item.label}</span>
-            </button>
-          ))}
-        </nav>
+          <MoreHorizontal size={19} aria-hidden="true" />
+          <span>Thêm</span>
+        </button>
+      </nav>
+
+      {mobileMenuOpen ? (
+        <MobileMoreSheet
+          items={mobileSheetItems}
+          activeView={activeView}
+          session={session}
+          isAdmin={isAdmin}
+          onSelect={openView}
+          onClose={() => setMobileMenuOpen(false)}
+        />
       ) : null}
 
       {modal ? (
@@ -5013,6 +5066,77 @@ function UserCard({ session }: { session: ClientSession }) {
       <a className="user-logout" href="/api/auth/logout" title="Đăng xuất">
         <LogOut size={16} />
       </a>
+    </div>
+  );
+}
+
+/**
+ * Sheet "Thêm" ở mobile: chứa các view không ghim ở thanh dưới cùng nút Đăng xuất.
+ * Không có sheet này thì trên điện thoại (sidebar bị display:none) các view
+ * Dòng tiền / CTV / Học viên / Cài đặt và nút Đăng xuất đều không bấm được.
+ */
+function MobileMoreSheet({
+  items,
+  activeView,
+  session,
+  isAdmin,
+  onSelect,
+  onClose,
+}: {
+  items: NavItem[];
+  activeView: ViewKey;
+  session: ClientSession;
+  isAdmin: boolean;
+  onSelect: (view: ViewKey) => void;
+  onClose: () => void;
+}) {
+  return (
+    <div className="mobile-sheet-backdrop" onClick={onClose} role="presentation">
+      <div
+        className="mobile-sheet"
+        role="dialog"
+        aria-modal="true"
+        aria-label="Menu điều hướng"
+        onClick={(event: MouseEvent<HTMLDivElement>) => event.stopPropagation()}
+      >
+        <div className="mobile-sheet-head">
+          <div className="mobile-sheet-user">
+            <div className="user-avatar">{session.name.slice(0, 1).toUpperCase()}</div>
+            <div>
+              <strong>{session.name}</strong>
+              <span>{session.email}</span>
+            </div>
+          </div>
+          <button className="icon-button" type="button" onClick={onClose} aria-label="Đóng menu">
+            <X size={18} aria-hidden="true" />
+          </button>
+        </div>
+
+        {items.length ? (
+          <div className="mobile-sheet-grid">
+            {items.map((item) => (
+              <button
+                key={item.key}
+                className={activeView === item.key ? "mobile-sheet-item active" : "mobile-sheet-item"}
+                onClick={() => onSelect(item.key)}
+                aria-current={activeView === item.key ? "page" : undefined}
+                type="button"
+              >
+                <item.icon size={19} aria-hidden="true" />
+                <span>{item.label}</span>
+              </button>
+            ))}
+          </div>
+        ) : null}
+
+        <div className="mobile-sheet-foot">
+          <span className="status-badge info">{isAdmin ? "Quản trị viên" : "Cộng tác viên"}</span>
+          <a className="button ghost" href="/api/auth/logout">
+            <LogOut size={17} aria-hidden="true" />
+            <span>Đăng xuất</span>
+          </a>
+        </div>
+      </div>
     </div>
   );
 }
