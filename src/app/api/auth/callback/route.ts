@@ -1,3 +1,5 @@
+import { timingSafeEqual } from "node:crypto";
+import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
 
 import {
@@ -6,6 +8,7 @@ import {
   createOAuthClient,
   ctvEmailAllowed,
   getOAuthConfig,
+  isSecureCookie,
   roleForEmail,
   signSession,
 } from "@/lib/auth";
@@ -23,17 +26,18 @@ function errorRedirect(origin: string, message: string) {
 export async function GET(request: Request) {
   const url = new URL(request.url);
   const origin = url.origin;
-  const code = url.searchParams.get("code");
-  const state = url.searchParams.get("state");
-  const stateCookie = request.headers
-    .get("cookie")
-    ?.split(";")
-    .map((c) => c.trim())
-    .find((c) => c.startsWith(`${OAUTH_STATE_COOKIE}=`))
-    ?.split("=")[1];
+  const code = url.searchParams.get("code")?.trim();
+  const state = url.searchParams.get("state")?.trim();
+  const stateCookie = (await cookies()).get(OAUTH_STATE_COOKIE)?.value?.trim();
 
   if (!code) return errorRedirect(origin, "Thiếu mã xác thực từ Google.");
-  if (!state || !stateCookie || state !== stateCookie) {
+  if (!state || !stateCookie || state.length > 128 || stateCookie.length > 128) {
+    return errorRedirect(origin, "State không hợp lệ, thử đăng nhập lại.");
+  }
+  // So sánh constant-time để chống timing oracle.
+  const a = Buffer.from(state);
+  const b = Buffer.from(stateCookie);
+  if (a.length !== b.length || !timingSafeEqual(a, b)) {
     return errorRedirect(origin, "State không hợp lệ, thử đăng nhập lại.");
   }
 
@@ -75,7 +79,7 @@ export async function GET(request: Request) {
     res.cookies.set(SESSION_COOKIE, token, {
       httpOnly: true,
       sameSite: "lax",
-      secure: origin.startsWith("https://"),
+      secure: isSecureCookie(origin),
       path: "/",
       maxAge,
     });

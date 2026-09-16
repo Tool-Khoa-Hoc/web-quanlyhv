@@ -9,6 +9,14 @@ import {
 } from "@/lib/google-admin";
 import { rejectCrossSiteMutation, requireGroupAccess, requireSession } from "@/lib/api-guard";
 import { recordCtvActivity } from "@/lib/activity-store";
+import {
+  checkRateLimit,
+  isJsonBodyTooLarge,
+  isValidEmail,
+  isValidGroupKey,
+  normalizeEmail,
+  rateLimitKey,
+} from "@/lib/validation";
 import { KvStoreError } from "@/lib/kv";
 import {
   TrialStoreError,
@@ -64,20 +72,32 @@ export async function POST(request: Request) {
     ctvEmail?: string;
     ctvName?: string;
   };
-  const groupKey = body.groupKey?.trim();
-  const email = body.email?.trim().toLowerCase();
-  if (!groupKey || !email) {
-    return NextResponse.json({ error: "Thiếu groupKey hoặc email." }, { status: 400 });
+  if (isJsonBodyTooLarge(body, 16_000)) {
+    return NextResponse.json({ error: "Payload quá lớn." }, { status: 413 });
+  }
+  const groupKey = body.groupKey?.trim() ?? "";
+  const email = body.email ? normalizeEmail(body.email) : "";
+  if (!groupKey || !isValidGroupKey(groupKey)) {
+    return NextResponse.json({ error: "groupKey không hợp lệ." }, { status: 400 });
+  }
+  if (!email || !isValidEmail(email)) {
+    return NextResponse.json({ error: "Email học viên không hợp lệ." }, { status: 400 });
   }
 
   const session = await requireGroupAccess(groupKey);
   if (session instanceof NextResponse) return session;
   const crossSite = rejectCrossSiteMutation(request);
   if (crossSite) return crossSite;
+  const rl = checkRateLimit(rateLimitKey(request, "trials:add", session.email), 20, 60_000);
+  if (!rl.ok) {
+    return NextResponse.json({ error: "Thao tác quá nhanh, thử lại sau." }, { status: 429 });
+  }
 
   // Mặc định gắn người đang đăng nhập. Riêng admin được phép gắn cho 1 CTV (domain) khác.
-  const requestedCtvEmail = body.ctvEmail?.trim().toLowerCase() ?? "";
-  const requestedCtvName = body.ctvName?.trim() ?? "";
+  // Validate ctvEmail để tránh ghi attribution bẩn vào Redis (stored-XSS/log-spoof sau này render).
+  const rawCtvEmail = body.ctvEmail ? normalizeEmail(body.ctvEmail) : "";
+  const requestedCtvEmail = rawCtvEmail && isValidEmail(rawCtvEmail) ? rawCtvEmail : "";
+  const requestedCtvName = body.ctvName?.trim().slice(0, 120) ?? "";
   const attributedEmail =
     session.role === "admin" && (requestedCtvEmail || requestedCtvName)
       ? requestedCtvEmail
@@ -100,7 +120,7 @@ export async function POST(request: Request) {
     };
     try {
       const res = await ensureGroupMember(directory, groupKey, email, "MEMBER");
-      await ensureSheetHocDthtMember(directory, email, groupKey);
+      await ensureSheetHocDthtMember(directory, email, groupKey, { sourceAuthorized: true });
       member = {
         id: res.id ?? "",
         email: res.email ?? email,
@@ -116,12 +136,12 @@ export async function POST(request: Request) {
 
     const record = await upsertTrialRecord({
       timestamp: new Date().toISOString(),
-      groupEmail: groupKey,
+      groupEmail: groupKey.slice(0, 254),
       studentEmail: email,
-      studentName: body.name?.trim() ?? "",
-      trialCourse: body.trialCourse?.trim() ?? "",
-      ctvEmail: attributedEmail,
-      ctvName: attributedName,
+      studentName: (body.name?.trim() ?? "").slice(0, 120),
+      trialCourse: (body.trialCourse?.trim() ?? "").slice(0, 200),
+      ctvEmail: attributedEmail.slice(0, 254),
+      ctvName: attributedName.slice(0, 120),
     });
 
     await recordCtvActivity(session, {
@@ -158,20 +178,27 @@ export async function PATCH(request: Request) {
     email?: string;
     status?: string;
   };
-  const groupKey = body.groupKey?.trim();
-  const email = body.email?.trim().toLowerCase();
-  const status = body.status?.trim();
-  if (!groupKey || !email || !status) {
-    return NextResponse.json({ error: "Thiếu groupKey, email hoặc status." }, { status: 400 });
+  if (isJsonBodyTooLarge(body, 8_000)) {
+    return NextResponse.json({ error: "Payload quá lớn." }, { status: 413 });
+  }
+  const groupKey = body.groupKey?.trim() ?? "";
+  const email = body.email ? normalizeEmail(body.email) : "";
+  const status = body.status?.trim() ?? "";
+  if (!isValidGroupKey(groupKey) || !isValidEmail(email) || !status) {
+    return NextResponse.json({ error: "groupKey, email hoặc status không hợp lệ." }, { status: 400 });
   }
   if (!VALID_STATUS.includes(status)) {
-    return NextResponse.json({ error: `Trạng thái không hợp lệ: ${status}` }, { status: 400 });
+    return NextResponse.json({ error: "Trạng thái không hợp lệ." }, { status: 400 });
   }
 
   const session = await requireGroupAccess(groupKey);
   if (session instanceof NextResponse) return session;
   const crossSite = rejectCrossSiteMutation(request);
   if (crossSite) return crossSite;
+  const rl = checkRateLimit(rateLimitKey(request, "trials:status", session.email), 30, 60_000);
+  if (!rl.ok) {
+    return NextResponse.json({ error: "Thao tác quá nhanh, thử lại sau." }, { status: 429 });
+  }
 
   try {
     const ok = await updateTrialStatus(groupKey, email, status);

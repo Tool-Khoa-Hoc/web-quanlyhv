@@ -9,6 +9,13 @@ import {
   isCtvTrialGroup,
 } from "@/lib/google-admin";
 import { rejectCrossSiteMutation, requireAdmin, requireSession } from "@/lib/api-guard";
+import {
+  checkRateLimit,
+  isJsonBodyTooLarge,
+  isValidEmail,
+  normalizeEmail,
+  rateLimitKey,
+} from "@/lib/validation";
 import type { ApiGroup } from "@/lib/admin-types";
 
 export const dynamic = "force-dynamic";
@@ -79,25 +86,33 @@ export async function POST(request: Request) {
   if (session instanceof NextResponse) return session;
   const crossSite = rejectCrossSiteMutation(request);
   if (crossSite) return crossSite;
+  const rl = checkRateLimit(rateLimitKey(request, "groups:create", session.email), 10, 60_000);
+  if (!rl.ok) {
+    return NextResponse.json({ error: "Thao tác quá nhanh, thử lại sau." }, { status: 429 });
+  }
 
   try {
-    const body = (await request.json()) as {
+    const body = (await request.json().catch(() => ({}))) as {
       email?: string;
       name?: string;
       description?: string;
     };
-    const email = body.email?.trim().toLowerCase();
-    if (!email) {
-      return NextResponse.json({ error: "Thiếu email nhóm." }, { status: 400 });
+    if (isJsonBodyTooLarge(body, 8_000)) {
+      return NextResponse.json({ error: "Payload quá lớn." }, { status: 413 });
     }
-    const name = body.name?.trim() || email;
+    const email = body.email ? normalizeEmail(body.email) : "";
+    if (!email || !isValidEmail(email)) {
+      return NextResponse.json({ error: "Email nhóm không hợp lệ." }, { status: 400 });
+    }
+    const name = (body.name?.trim() || email).slice(0, 120);
+    const description = body.description?.trim().slice(0, 500) || undefined;
 
     const directory = getDirectory();
     const res = await directory.groups.insert({
       requestBody: {
         email,
         name,
-        description: body.description?.trim() || undefined,
+        description,
       },
     });
 

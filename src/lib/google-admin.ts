@@ -262,11 +262,24 @@ export async function ensureSheetHocDthtMember(
   directory: admin_directory_v1.Admin,
   email: string,
   sourceGroupKey?: string,
+  opts?: { sourceAuthorized?: boolean },
 ): Promise<admin_directory_v1.Schema$Member | null> {
-  if (sourceGroupKey?.trim().toLowerCase() === SHEET_HOC_DTHT_GROUP_EMAIL) {
+  const src = sourceGroupKey?.trim().toLowerCase() ?? "";
+  if (!src || src === SHEET_HOC_DTHT_GROUP_EMAIL) {
     return null;
   }
+  // Side-effect nhạy cảm: CTV thêm vào trial-group sẽ kéo theo ghi vào group đặc quyền.
+  // Chỉ cho phép khi caller đã authorize source-group (requireGroupAccess passed).
+  // Không bao giờ cho role khác MEMBER ở đây để tránh leo thang OWNER/MANAGER.
+  if (!opts?.sourceAuthorized) {
+    throw new AdminUserError("Thiếu xác thực nguồn cho thao tác mở rộng.");
+  }
   return ensureGroupMember(directory, SHEET_HOC_DTHT_GROUP_EMAIL, email, "MEMBER");
+}
+
+/** CTV không được thao tác trực tiếp group đặc quyền, chỉ được gián tiếp qua auto-add đã authorize. */
+export function isCtvBlockedDirectGroup(groupKey: string): boolean {
+  return groupKey.trim().toLowerCase() === SHEET_HOC_DTHT_GROUP_EMAIL;
 }
 
 /** Chuẩn hóa lỗi từ googleapis thành { status, message } để trả về client. */
@@ -275,12 +288,25 @@ export function describeApiError(error: unknown): { status: number; message: str
     return { status: error.status, message: error.message };
   }
   if (error instanceof AdminConfigError) {
-    return { status: 503, message: error.message };
+    // Không lộ chi tiết cấu hình (đường dẫn file key, tên biến env) ra client.
+    console.error("[admin-config-error]", (error as Error).message);
+    return { status: 503, message: "Dịch vụ quản trị chưa sẵn sàng, thử lại sau." };
   }
   const err = error as { code?: number; errors?: unknown[] };
   const status = typeof err.code === "number" ? err.code : 500;
-  const message =
-    err.errors?.map((item) => getErrorMessage(item, "")).find(Boolean) ||
-    getErrorMessage(error, "Lỗi không xác định khi gọi Admin SDK.");
-  return { status, message };
+  // Log chi tiết ở server, trả về client message chung để tránh enumeration/oracle.
+  console.error("[google-api-error]", status, getErrorMessage(error, ""));
+  if (status === 401 || status === 403) {
+    return { status, message: "Không đủ quyền thao tác Google Group." };
+  }
+  if (status === 404) {
+    return { status, message: "Không tìm thấy nhóm hoặc thành viên." };
+  }
+  if (status === 409) {
+    return { status, message: "Thành viên đã tồn tại trong nhóm." };
+  }
+  if (status === 429) {
+    return { status: 429, message: "Google giới hạn tốc độ, thử lại sau." };
+  }
+  return { status: status >= 400 && status < 600 ? status : 500, message: "Lỗi khi gọi Google, thử lại sau." };
 }

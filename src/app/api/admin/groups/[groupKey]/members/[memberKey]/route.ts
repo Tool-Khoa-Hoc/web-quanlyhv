@@ -2,6 +2,14 @@ import { NextResponse } from "next/server";
 
 import { describeApiError, getDirectory } from "@/lib/google-admin";
 import { rejectCrossSiteMutation, requireAdmin } from "@/lib/api-guard";
+import {
+  checkRateLimit,
+  isJsonBodyTooLarge,
+  isValidEmail,
+  isValidGroupKey,
+  normalizeEmail,
+  rateLimitKey,
+} from "@/lib/validation";
 import type { ApiGroupRole, ApiMember } from "@/lib/admin-types";
 
 export const dynamic = "force-dynamic";
@@ -9,12 +17,6 @@ export const dynamic = "force-dynamic";
 const VALID_ROLES: ApiGroupRole[] = ["OWNER", "MANAGER", "MEMBER"];
 
 type MemberRouteParams = { groupKey?: string; memberKey?: string };
-type MemberRouteBody = {
-  groupKey?: string;
-  memberKey?: string;
-  memberEmail?: string;
-  role?: string;
-};
 
 function decodeKey(value: string | null | undefined): string {
   if (!value) return "";
@@ -25,46 +27,26 @@ function decodeKey(value: string | null | undefined): string {
   }
 }
 
-async function readJsonBody(request: Request): Promise<MemberRouteBody> {
+// CHỈ tin path params. Không đọc groupKey/memberKey từ query string hay JSON body
+// để tránh log-spoof / thao tác nhầm group khác với URL hiển thị.
+function resolvePathKeys(params: MemberRouteParams) {
+  return {
+    groupKey: decodeKey(params.groupKey),
+    memberKey: decodeKey(params.memberKey),
+  };
+}
+
+async function readRoleBody(request: Request): Promise<{ role?: unknown }> {
   if (!request.headers.get("content-type")?.includes("application/json")) {
     return {};
   }
-
   try {
     const body = await request.json();
-    return body && typeof body === "object" ? (body as MemberRouteBody) : {};
+    if (isJsonBodyTooLarge(body, 4_000)) return {};
+    return body && typeof body === "object" ? (body as { role?: unknown }) : {};
   } catch {
     return {};
   }
-}
-
-function resolveMemberKeys(
-  request: Request,
-  params: MemberRouteParams,
-  body: MemberRouteBody = {},
-) {
-  const url = new URL(request.url);
-  const segments = url.pathname.split("/").filter(Boolean);
-  const membersIndex = segments.lastIndexOf("members");
-  const pathGroupKey = membersIndex > 0 ? decodeKey(segments[membersIndex - 1]) : "";
-  const pathMemberKey =
-    membersIndex >= 0 && membersIndex < segments.length - 1
-      ? decodeKey(segments[membersIndex + 1])
-      : "";
-
-  return {
-    groupKey:
-      decodeKey(params.groupKey) ||
-      pathGroupKey ||
-      decodeKey(url.searchParams.get("groupKey")) ||
-      decodeKey(body.groupKey),
-    memberKey:
-      decodeKey(params.memberKey) ||
-      pathMemberKey ||
-      decodeKey(url.searchParams.get("memberKey")) ||
-      decodeKey(body.memberKey) ||
-      decodeKey(body.memberEmail),
-  };
 }
 
 // DELETE /api/admin/groups/:groupKey/members/:memberKey → xóa thành viên khỏi nhóm.
@@ -77,21 +59,25 @@ export async function DELETE(
   if (session instanceof NextResponse) return session;
   const crossSite = rejectCrossSiteMutation(request);
   if (crossSite) return crossSite;
-
-  const body = await readJsonBody(request);
-  const { groupKey, memberKey } = resolveMemberKeys(request, await params, body);
-  if (!groupKey) {
-    return NextResponse.json({ error: "Thiếu Google Group." }, { status: 400 });
+  const rl = checkRateLimit(rateLimitKey(request, "members:delete", session.email), 20, 60_000);
+  if (!rl.ok) {
+    return NextResponse.json({ error: "Thao tác quá nhanh, thử lại sau." }, { status: 429 });
   }
-  if (!memberKey) {
-    return NextResponse.json({ error: "Thiếu email thành viên cần xóa." }, { status: 400 });
+
+  const { groupKey, memberKey } = resolvePathKeys(await params);
+  if (!isValidGroupKey(groupKey)) {
+    return NextResponse.json({ error: "Google Group không hợp lệ." }, { status: 400 });
+  }
+  const memberEmail = memberKey ? normalizeEmail(memberKey) : "";
+  if (!memberEmail || !isValidEmail(memberEmail)) {
+    return NextResponse.json({ error: "Email thành viên không hợp lệ." }, { status: 400 });
   }
 
   try {
     const directory = getDirectory();
     await directory.members.delete({
       groupKey,
-      memberKey,
+      memberKey: memberEmail,
     });
     return NextResponse.json({ ok: true });
   } catch (error) {
@@ -114,26 +100,32 @@ export async function PATCH(
   if (session instanceof NextResponse) return session;
   const crossSite = rejectCrossSiteMutation(request);
   if (crossSite) return crossSite;
-
-  const body = await readJsonBody(request);
-  const { groupKey, memberKey } = resolveMemberKeys(request, await params, body);
-  if (!groupKey) {
-    return NextResponse.json({ error: "Thiếu Google Group." }, { status: 400 });
+  const rl = checkRateLimit(rateLimitKey(request, "members:role", session.email), 20, 60_000);
+  if (!rl.ok) {
+    return NextResponse.json({ error: "Thao tác quá nhanh, thử lại sau." }, { status: 429 });
   }
-  if (!memberKey) {
-    return NextResponse.json({ error: "Thiếu email thành viên cần đổi vai trò." }, { status: 400 });
+
+  const { groupKey, memberKey } = resolvePathKeys(await params);
+  if (!isValidGroupKey(groupKey)) {
+    return NextResponse.json({ error: "Google Group không hợp lệ." }, { status: 400 });
+  }
+  const memberEmail = memberKey ? normalizeEmail(memberKey) : "";
+  if (!memberEmail || !isValidEmail(memberEmail)) {
+    return NextResponse.json({ error: "Email thành viên không hợp lệ." }, { status: 400 });
   }
 
   try {
-    const role = body.role?.toUpperCase() as ApiGroupRole | undefined;
+    const body = await readRoleBody(request);
+    const role =
+      typeof body.role === "string" ? (body.role.toUpperCase() as ApiGroupRole) : undefined;
     if (!role || !VALID_ROLES.includes(role)) {
-      return NextResponse.json({ error: `Role không hợp lệ: ${body.role}` }, { status: 400 });
+      return NextResponse.json({ error: "Role không hợp lệ." }, { status: 400 });
     }
 
     const directory = getDirectory();
     const res = await directory.members.patch({
       groupKey,
-      memberKey,
+      memberKey: memberEmail,
       requestBody: { role },
     });
 

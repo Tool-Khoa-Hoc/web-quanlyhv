@@ -5,6 +5,7 @@ import {
   OAUTH_STATE_COOKIE,
   createOAuthClient,
   getOAuthConfig,
+  isSecureCookie,
   newStateToken,
 } from "@/lib/auth";
 
@@ -30,7 +31,7 @@ export async function GET(request: Request) {
     res.cookies.set(OAUTH_STATE_COOKIE, state, {
       httpOnly: true,
       sameSite: "lax",
-      secure: origin.startsWith("https://"),
+      secure: isSecureCookie(origin),
       path: "/",
       maxAge: 600,
     });
