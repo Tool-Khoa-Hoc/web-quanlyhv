@@ -7,7 +7,7 @@ import { KvStoreError } from "@/lib/kv";
 export const dynamic = "force-dynamic";
 
 // GET /api/jobs → nhật ký thao tác CTV, chỉ admin được xem.
-export async function GET() {
+export async function GET(request: Request) {
   const session = await requireAdmin();
   if (session instanceof NextResponse) return session;
 

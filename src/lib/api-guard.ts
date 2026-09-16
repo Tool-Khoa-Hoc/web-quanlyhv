@@ -2,8 +2,13 @@ import "server-only";
 
 import { NextResponse } from "next/server";
 
-import { ctvEmailAllowed, getSession, type AppSession } from "./auth";
-import { describeApiError, getCtvTrialGroupKeys, isCtvTrialGroup } from "./google-admin";
+import { ctvEmailAllowed, getOAuthConfig, getSession, type AppSession } from "./auth";
+import {
+  describeApiError,
+  getCtvTrialGroupKeys,
+  isCtvBlockedDirectGroup,
+  isCtvTrialGroup,
+} from "./google-admin";
 
 // Helper bảo vệ các API route: trả về session hợp lệ hoặc NextResponse lỗi.
 // Cách dùng: const s = await requireSession(); if (s instanceof NextResponse) return s;
@@ -34,19 +39,50 @@ export async function requireAdmin(): Promise<AppSession | NextResponse> {
   if (session.role !== "admin") {
     return NextResponse.json({ error: "Chỉ admin được phép." }, { status: 403 });
   }
+  // Re-validate: admin bị thu quyền vẫn còn cookie cũ 12h -> phải chặn.
+  // Fail-closed nếu thiếu cấu hình admin.
+  try {
+    const adminEmails = getOAuthConfig().adminEmails.map((e) => e.toLowerCase());
+    if (!adminEmails.includes(session.email.trim().toLowerCase())) {
+      return NextResponse.json({ error: "Quyền admin đã bị thu hồi." }, { status: 403 });
+    }
+  } catch {
+    return NextResponse.json({ error: "Cấu hình quyền chưa hoàn chỉnh." }, { status: 503 });
+  }
   return session;
 }
 
 export function rejectCrossSiteMutation(request: Request): NextResponse | null {
-  const origin = request.headers.get("origin");
-  if (!origin) return null;
-
-  const allowed = new Set([new URL(request.url).origin]);
+  const url = new URL(request.url);
+  const allowed = new Set([url.origin]);
   const appBaseUrl = process.env.APP_BASE_URL?.trim();
   if (appBaseUrl) allowed.add(appBaseUrl.replace(/\/+$/, ""));
 
-  if (allowed.has(origin)) return null;
-  return NextResponse.json({ error: "Nguồn yêu cầu không hợp lệ." }, { status: 403 });
+  const origin = request.headers.get("origin")?.trim();
+  if (origin) {
+    if (allowed.has(origin.replace(/\/+$/, ""))) return null;
+    return NextResponse.json({ error: "Nguồn yêu cầu không hợp lệ." }, { status: 403 });
+  }
+
+  // Không có Origin -> kiểm tra Referer (form POST, fetch same-origin thường có 1 trong 2).
+  const referer = request.headers.get("referer")?.trim();
+  if (referer) {
+    try {
+      if (allowed.has(new URL(referer).origin)) return null;
+    } catch {
+      // Referer méo -> chặn.
+    }
+    return NextResponse.json({ error: "Nguồn yêu cầu không hợp lệ." }, { status: 403 });
+  }
+
+  // Không Origin lẫn Referer: chỉ cho qua nếu client chứng minh là same-origin
+  // qua Sec-Fetch-Site (Chrome/Safari/Edge gửi). Còn lại (curl, form cross-site cũ) -> chặn.
+  const fetchSite = request.headers.get("sec-fetch-site")?.toLowerCase();
+  if (fetchSite === "same-origin" || fetchSite === "same-site") return null;
+  return NextResponse.json(
+    { error: "Thiếu thông tin nguồn yêu cầu, thử tải lại trang." },
+    { status: 403 },
+  );
 }
 
 /**
@@ -74,6 +110,14 @@ export async function requireGroupAccess(groupKey: string): Promise<AppSession |
   if (!getCtvTrialGroupKeys().length) {
     return NextResponse.json(
       { error: "Hệ thống chưa cấu hình nhóm học thử cho CTV (CTV_TRIAL_GROUP_EMAILS)." },
+      { status: 403 },
+    );
+  }
+  // Chặn tường minh thao tác trực tiếp vào group đặc quyền (sheet-hoc-dtht).
+  // CTV chỉ được gián tiếp qua auto-add đã authorize ở server, không được GET/POST trực tiếp.
+  if (isCtvBlockedDirectGroup(groupKey)) {
+    return NextResponse.json(
+      { error: "CTV không được thao tác trực tiếp nhóm này." },
       { status: 403 },
     );
   }

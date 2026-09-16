@@ -4,6 +4,7 @@ import { rejectCrossSiteMutation, requireAdmin } from "@/lib/api-guard";
 import type { ApiLockedGroup, ApiLockStudentResult } from "@/lib/admin-types";
 import { describeApiError, getDirectory } from "@/lib/google-admin";
 import { getErrorMessage } from "@/lib/error-message";
+import { checkRateLimit, isValidEmail, normalizeEmail, rateLimitKey } from "@/lib/validation";
 
 export const dynamic = "force-dynamic";
 
@@ -18,10 +19,20 @@ export async function POST(
   if (session instanceof NextResponse) return session;
   const crossSite = rejectCrossSiteMutation(request);
   if (crossSite) return crossSite;
+  // Thao tác phá hoại hàng loạt -> rate-limit chặt.
+  const rl = checkRateLimit(rateLimitKey(request, "students:lock", session.email), 5, 60_000);
+  if (!rl.ok) {
+    return NextResponse.json({ error: "Thao tác quá nhanh, thử lại sau." }, { status: 429 });
+  }
 
   const { studentEmail: encodedStudentEmail } = await params;
-  const studentEmail = decodeURIComponent(encodedStudentEmail).trim().toLowerCase();
-  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(studentEmail)) {
+  let studentEmail = "";
+  try {
+    studentEmail = normalizeEmail(decodeURIComponent(encodedStudentEmail));
+  } catch {
+    studentEmail = normalizeEmail(encodedStudentEmail);
+  }
+  if (!isValidEmail(studentEmail)) {
     return NextResponse.json({ error: "Email học viên không hợp lệ." }, { status: 400 });
   }
 

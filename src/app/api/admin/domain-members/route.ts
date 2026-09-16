@@ -7,6 +7,7 @@ import {
   getWorkspaceDomain,
 } from "@/lib/google-admin";
 import { requireSession } from "@/lib/api-guard";
+import { checkRateLimit, rateLimitKey } from "@/lib/validation";
 import type { DomainMember } from "@/lib/admin-types";
 
 export const dynamic = "force-dynamic";
@@ -15,9 +16,13 @@ export const dynamic = "force-dynamic";
 //  → email các thành viên NỘI BỘ (thuộc domain Workspace) đang ở trong nhóm học thử.
 //    Dùng để chọn CTV khi thêm đăng ký — thay danh sách CTV cục bộ bằng tài khoản domain thật.
 //    Lọc bỏ học viên ngoài (gmail...) chỉ giữ email kết thúc bằng @<domain>.
-export async function GET() {
+export async function GET(request: Request) {
   const session = await requireSession();
   if (session instanceof NextResponse) return session;
+  const rl = checkRateLimit(rateLimitKey(request, "domain-members", session.email), 60, 60_000);
+  if (!rl.ok) {
+    return NextResponse.json({ error: "Thao tác quá nhanh, thử lại sau." }, { status: 429 });
+  }
 
   const trialGroupKeys = getCtvTrialGroupKeys();
   if (!trialGroupKeys.length) return NextResponse.json({ members: [] });

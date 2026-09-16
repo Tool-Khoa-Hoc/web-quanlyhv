@@ -146,8 +146,20 @@ class DriveAllInOne:
                 break
         return files_list
 
+    def _escape_drive_literal(self, value):
+        # Drive query dùng nháy đơn bao chuỗi: phải escape \ rồi ' để chống query-injection
+        # khi tên file/folder chứa ký tự đặc biệt.
+        return str(value or "").replace("\\", "\\\\").replace("'", "\\'")
+
+    def _is_valid_drive_id(self, value):
+        import re as _re
+        return bool(_re.fullmatch(r"[-\w]{25,}", str(value or "").strip()))
+
     def copy_file(self, service, file_id, dest_id, file_name):
-        safe_name = file_name.replace("'", "\'")
+        if not self._is_valid_drive_id(file_id) or not self._is_valid_drive_id(dest_id):
+            self._log_error(file_name, 'File', file_id, 'Drive ID không hợp lệ, bỏ qua để tránh injection')
+            return None
+        safe_name = self._escape_drive_literal(file_name)
         q = f"'{dest_id}' in parents and name='{safe_name}' and trashed=false"
         try:
             req_exist = service.files().list(q=q, fields='files(id,name)', supportsAllDrives=True, includeItemsFromAllDrives=True)
@@ -168,7 +180,10 @@ class DriveAllInOne:
             return None
 
     def create_folder(self, service, parent_id, folder_name):
-        safe_name = folder_name.replace("'", "\'")
+        if not self._is_valid_drive_id(parent_id):
+            self._log_error(folder_name, 'Folder', '', 'Parent Drive ID không hợp lệ, bỏ qua')
+            return None
+        safe_name = self._escape_drive_literal(folder_name)
         q = f"'{parent_id}' in parents and name='{safe_name}' and mimeType='application/vnd.google-apps.folder' and trashed=false"
         try:
             req_exist = service.files().list(q=q, fields='files(id,name)', supportsAllDrives=True, includeItemsFromAllDrives=True)

@@ -78,6 +78,15 @@ export function roleForEmail(email: string, config: OAuthConfig): AppRole {
   return config.adminEmails.includes(email.toLowerCase()) ? "admin" : "ctv";
 }
 
+/** Cookie session phải Secure ở prod (sau proxy HTTPS). Dev localhost cho phép http. */
+export function isSecureCookie(requestOrigin?: string): boolean {
+  if (process.env.NODE_ENV === "production") return true;
+  const base = process.env.APP_BASE_URL?.trim();
+  if (base?.startsWith("https://")) return true;
+  if (requestOrigin?.startsWith("https://")) return true;
+  return false;
+}
+
 function envEmailList(name: string): string[] {
   return (process.env[name] ?? "")
     .split(",")

@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 
 import { rejectCrossSiteMutation, requireAdmin } from "@/lib/api-guard";
 import { describeApiError } from "@/lib/google-admin";
+import { checkRateLimit, isJsonBodyTooLarge, rateLimitKey } from "@/lib/validation";
 import { KvStoreError } from "@/lib/kv";
 import {
   isLedgerConfigured,
@@ -42,6 +43,10 @@ export async function PUT(request: Request) {
   if (session instanceof NextResponse) return session;
   const crossSite = rejectCrossSiteMutation(request);
   if (crossSite) return crossSite;
+  const rl = checkRateLimit(rateLimitKey(request, "ledger:write", session.email), 30, 60_000);
+  if (!rl.ok) {
+    return NextResponse.json({ error: "Thao tác quá nhanh, thử lại sau." }, { status: 429 });
+  }
   if (!isLedgerConfigured()) {
     return NextResponse.json({ error: "Chưa cấu hình kho dữ liệu." }, { status: 503 });
   }
@@ -50,6 +55,10 @@ export async function PUT(request: Request) {
     payload?: LedgerPayload;
     baseRev?: number;
   };
+  // Chặn payload phình Redis (DoS). Sổ cái thực tế < 200KB, chặn cứng 512KB.
+  if (isJsonBodyTooLarge(body, 512_000)) {
+    return NextResponse.json({ error: "Payload sổ cái quá lớn (tối đa ~512KB)." }, { status: 413 });
+  }
   const payload = body.payload;
   if (
     !payload ||
@@ -58,11 +67,31 @@ export async function PUT(request: Request) {
     !Array.isArray(payload.enrollments) ||
     !Array.isArray(payload.expenses) ||
     !Array.isArray(payload.jobs) ||
-    !payload.settings
+    !payload.settings ||
+    typeof payload.settings !== "object"
   ) {
     return NextResponse.json({ error: "Payload sổ cái không hợp lệ." }, { status: 400 });
   }
-  const baseRev = Number.isFinite(body.baseRev) ? Number(body.baseRev) : 0;
+  // Giới hạn số lượng + kiểu để tránh ghi rác làm sập client render / tràn Redis.
+  const limits: Array<[unknown[], number, string]> = [
+    [payload.ctvs, 5000, "ctvs"],
+    [payload.students, 20000, "students"],
+    [payload.enrollments, 50000, "enrollments"],
+    [payload.expenses, 20000, "expenses"],
+    [payload.jobs, 5000, "jobs"],
+  ];
+  for (const [arr, max, name] of limits) {
+    if (arr.length > max) {
+      return NextResponse.json({ error: `Danh sách ${name} quá lớn.` }, { status: 400 });
+    }
+    if (!arr.every((x) => x && typeof x === "object" && !Array.isArray(x))) {
+      return NextResponse.json({ error: `Danh sách ${name} chứa mục không hợp lệ.` }, { status: 400 });
+    }
+  }
+  const baseRev = Number.isFinite(body.baseRev) ? Math.floor(Number(body.baseRev)) : 0;
+  if (baseRev < 0 || baseRev > 1_000_000_000) {
+    return NextResponse.json({ error: "baseRev không hợp lệ." }, { status: 400 });
+  }
 
   try {
     const result = await writeLedger(payload, baseRev);

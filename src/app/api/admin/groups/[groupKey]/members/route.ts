@@ -8,6 +8,14 @@ import {
 } from "@/lib/google-admin";
 import { rejectCrossSiteMutation, requireGroupAccess } from "@/lib/api-guard";
 import { recordCtvActivity } from "@/lib/activity-store";
+import {
+  checkRateLimit,
+  isJsonBodyTooLarge,
+  isValidEmail,
+  isValidGroupKey,
+  normalizeEmail,
+  rateLimitKey,
+} from "@/lib/validation";
 import type { ApiGroupRole, ApiMember } from "@/lib/admin-types";
 
 export const dynamic = "force-dynamic";
@@ -16,19 +24,27 @@ const VALID_ROLES: ApiGroupRole[] = ["OWNER", "MANAGER", "MEMBER"];
 
 // GET /api/admin/groups/:groupKey/members → danh sách thành viên thật của nhóm.
 export async function GET(
-  _request: Request,
+  request: Request,
   { params }: { params: Promise<{ groupKey: string }> },
 ) {
   const { groupKey } = await params;
-  const session = await requireGroupAccess(decodeURIComponent(groupKey));
+  const rawGroupKey = decodeURIComponent(groupKey).trim();
+  if (!isValidGroupKey(rawGroupKey)) {
+    return NextResponse.json({ error: "Google Group không hợp lệ." }, { status: 400 });
+  }
+  const session = await requireGroupAccess(rawGroupKey);
   if (session instanceof NextResponse) return session;
+  const rl = checkRateLimit(rateLimitKey(request, "members:list", session.email), 60, 60_000);
+  if (!rl.ok) {
+    return NextResponse.json({ error: "Thao tác quá nhanh, thử lại sau." }, { status: 429 });
+  }
   try {
     const directory = getDirectory();
     const members: ApiMember[] = [];
     let pageToken: string | undefined;
     do {
       const res = await directory.members.list({
-        groupKey: decodeURIComponent(groupKey),
+        groupKey: rawGroupKey,
         maxResults: 200,
         pageToken,
       });
@@ -57,15 +73,25 @@ export async function POST(
   { params }: { params: Promise<{ groupKey: string }> },
 ) {
   const { groupKey } = await params;
-  const session = await requireGroupAccess(decodeURIComponent(groupKey));
+  const decodedGroupKey = decodeURIComponent(groupKey).trim();
+  if (!isValidGroupKey(decodedGroupKey)) {
+    return NextResponse.json({ error: "Google Group không hợp lệ." }, { status: 400 });
+  }
+  const session = await requireGroupAccess(decodedGroupKey);
   if (session instanceof NextResponse) return session;
   const crossSite = rejectCrossSiteMutation(request);
   if (crossSite) return crossSite;
+  const rl = checkRateLimit(rateLimitKey(request, "members:add", session.email), 20, 60_000);
+  if (!rl.ok) {
+    return NextResponse.json({ error: "Thao tác quá nhanh, thử lại sau." }, { status: 429 });
+  }
   const body = (await request.json().catch(() => ({}))) as { email?: string; role?: string };
-  const email = body.email?.trim().toLowerCase() ?? "";
-  const decodedGroupKey = decodeURIComponent(groupKey).trim();
-  if (!email) {
-    return NextResponse.json({ error: "Thiếu email thành viên." }, { status: 400 });
+  if (isJsonBodyTooLarge(body, 8_000)) {
+    return NextResponse.json({ error: "Payload quá lớn." }, { status: 413 });
+  }
+  const email = body.email ? normalizeEmail(body.email) : "";
+  if (!email || !isValidEmail(email)) {
+    return NextResponse.json({ error: "Email thành viên không hợp lệ." }, { status: 400 });
   }
 
   try {
@@ -80,7 +106,11 @@ export async function POST(
 
     const directory = getDirectory();
     const addedMember = await ensureGroupMember(directory, decodedGroupKey, email, role);
-    await ensureSheetHocDthtMember(directory, email, decodedGroupKey);
+    // Auto-add vào group sheet-hoc là side-effect đặc quyền: chỉ chạy khi source-group
+    // đã authorize ở trên, luôn ép MEMBER, có ghi log để truy vết CTV nào trigger.
+    await ensureSheetHocDthtMember(directory, email, decodedGroupKey, {
+      sourceAuthorized: true,
+    });
 
     const member: ApiMember = {
       id: addedMember.id ?? "",
@@ -94,7 +124,10 @@ export async function POST(
       groupEmail: decodedGroupKey,
       studentGmail: email,
       status: "done",
-      detail: "Thêm thành viên với vai trò MEMBER",
+      detail:
+        session.role === "ctv"
+          ? "CTV thêm MEMBER (kèm auto-add sheet-hoc đã authorize)"
+          : `Thêm thành viên với vai trò ${role}`,
     });
     return NextResponse.json({ member }, { status: 201 });
   } catch (error) {
