@@ -2166,8 +2166,8 @@ function CashflowView({
   );
   const cumulative = series.at(-1)?.cumulative ?? 0;
   const granLabel = granularity === "day" ? "ngày" : granularity === "week" ? "tuần" : "tháng";
-  // Theo ngày: 14 ngày gần nhất (2 tuần) đủ thấy xu hướng mà nhãn không quá chật.
-  const chartCount = granularity === "day" ? 14 : 12;
+  // Theo ngày: 30 ngày gần nhất (1 tháng) để thấy xu hướng dài hơn; nhãn tự thưa ra cho gọn.
+  const chartCount = granularity === "day" ? 30 : 12;
   const visibleCategoryRows = summary.byCategory.filter((item) => item.amount > 0);
   const sortedExpenses = useMemo(
     () =>
@@ -2393,6 +2393,9 @@ function CashflowChart({
       ? `42,${y(data[0].net)} 58,${y(data[0].net)}`
       : data.map((item, index) => `${centers[index]},${y(item.net)}`).join(" ");
 
+  // Nhiều ngày thì chỉ hiện nhãn cách quãng để trục không bị chật.
+  const labelStep = Math.max(1, Math.ceil(data.length / 12));
+
   return (
     <div className="bars-chart">
       <svg viewBox="0 0 100 100" role="img" aria-label="Biểu đồ thu, chi và dòng tiền ròng">
@@ -2438,7 +2441,11 @@ function CashflowChart({
         <span><i className="net" /> Ròng</span>
       </div>
       <div className="cashflow-chart-labels">
-        {data.map((item) => <span key={item.key}>{item.label}</span>)}
+        {data.map((item, index) => (
+          <span key={item.key}>
+            {index % labelStep === 0 || index === data.length - 1 ? item.label : ""}
+          </span>
+        ))}
       </div>
     </div>
   );

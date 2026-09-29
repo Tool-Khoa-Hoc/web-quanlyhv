@@ -998,7 +998,9 @@ button:disabled {
 }
 
 .cashflow-chart-labels span {
-  flex: 1 0 64px;
+  flex: 1 1 0;
+  min-width: 0;
+  white-space: nowrap;
 }
 
 .cashflow-heading .segmented {
@@ -5050,7 +5052,7 @@ body {
   }
 
   .cashflow-chart-labels span {
-    flex-basis: 52px;
+    flex-basis: 0;
   }
 }
 
