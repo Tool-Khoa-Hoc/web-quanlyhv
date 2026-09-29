@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { rejectCrossSiteMutation, requireAdmin } from "@/lib/api-guard";
 import { describeApiError } from "@/lib/google-admin";
 import { checkRateLimit, isJsonBodyTooLarge, rateLimitKey } from "@/lib/validation";
+import { trimJobHistory } from "@/lib/job-history";
 import { KvStoreError } from "@/lib/kv";
 import {
   isLedgerConfigured,
@@ -12,6 +13,8 @@ import {
 } from "@/lib/ledger-store";
 
 export const dynamic = "force-dynamic";
+
+const LEDGER_MAX_CHARS = 4_000_000;
 
 function handleError(error: unknown) {
   if (error instanceof KvStoreError) {
@@ -55,9 +58,11 @@ export async function PUT(request: Request) {
     payload?: LedgerPayload;
     baseRev?: number;
   };
-  // Chặn payload phình Redis (DoS). Sổ cái thực tế < 200KB, chặn cứng 512KB.
-  if (isJsonBodyTooLarge(body, 512_000)) {
-    return NextResponse.json({ error: "Payload sổ cái quá lớn (tối đa ~512KB)." }, { status: 413 });
+  // Chặn payload phình Redis (DoS). Sổ cái thật (vài nghìn học viên/đăng ký) đã
+  // vượt 512KB → mức cũ chặn luôn cả thao tác hợp lệ. Đặt 4MB: dưới trần body
+  // 4.5MB của Vercel Functions và vẫn đủ chặn ghi rác cỡ lớn.
+  if (isJsonBodyTooLarge(body, LEDGER_MAX_CHARS)) {
+    return NextResponse.json({ error: "Payload sổ cái quá lớn (tối đa ~4MB)." }, { status: 413 });
   }
   const payload = body.payload;
   if (
@@ -72,6 +77,9 @@ export async function PUT(request: Request) {
   ) {
     return NextResponse.json({ error: "Payload sổ cái không hợp lệ." }, { status: 400 });
   }
+  // Lịch sử jobs tăng mãi theo thao tác → chỉ lưu job đang xử lý + bản ghi gần nhất
+  // (client cũ chưa tự cắt vẫn ghi được).
+  payload.jobs = trimJobHistory(payload.jobs);
   // Giới hạn số lượng + kiểu để tránh ghi rác làm sập client render / tràn Redis.
   const limits: Array<[unknown[], number, string]> = [
     [payload.ctvs, 5000, "ctvs"],

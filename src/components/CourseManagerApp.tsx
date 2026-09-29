@@ -93,6 +93,7 @@ import {
   type LedgerData,
 } from "@/lib/admin-api";
 import { getErrorMessage } from "@/lib/error-message";
+import { trimJobHistory } from "@/lib/job-history";
 import type {
   ApiAdminStatus,
   ClientSession,
@@ -352,7 +353,7 @@ export function CourseManagerApp({ session }: { session: ClientSession }) {
             students: current.students,
             enrollments: current.enrollments,
             expenses: current.expenses,
-            jobs: current.jobs,
+            jobs: trimJobHistory(current.jobs),
             settings: current.settings,
           },
           ledgerRevRef.current,

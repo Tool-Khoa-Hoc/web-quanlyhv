@@ -11,6 +11,7 @@ import {
   trendSeries,
   trialEnrollments,
 } from "./calculations";
+import { trimJobHistory } from "./job-history";
 import { seedState } from "./seed-data";
 import type { AppState, CourseGroup, Enrollment, GroupJob } from "./types";
 
@@ -172,7 +173,7 @@ export function normalizePersistedState(parsed: AppState): AppState {
     groups,
     expenses: parsed.expenses ?? [],
     groupMembers: (parsed.groupMembers ?? []).filter((member) => groupIds.has(member.groupId)),
-    jobs: (parsed.jobs ?? []).filter((job) => !job.groupId || groupIds.has(job.groupId)),
+    jobs: trimJobHistory((parsed.jobs ?? []).filter((job) => !job.groupId || groupIds.has(job.groupId))),
   };
 }
 
