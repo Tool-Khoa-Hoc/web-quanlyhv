@@ -8,7 +8,7 @@ import type {
   TrialResult,
 } from "./types";
 
-export type CashflowGranularity = "week" | "month";
+export type CashflowGranularity = "day" | "week" | "month";
 
 export interface CashflowBucket {
   key: string;
@@ -57,6 +57,19 @@ function isoWeekStart(year: number, week: number): Date {
   const start = new Date(firstMonday);
   start.setUTCDate(firstMonday.getUTCDate() + (week - 1) * 7);
   return start;
+}
+
+/** Khóa theo ngày (YYYY-MM-DD chuẩn hóa). */
+export function dayKey(iso: string): string {
+  const date = parseIsoDate(iso);
+  return date
+    ? `${date.getUTCFullYear()}-${datePart(date.getUTCMonth() + 1)}-${datePart(date.getUTCDate())}`
+    : "";
+}
+
+export function dayLabel(key: string): string {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(key);
+  return match ? `${match[3]}/${match[2]}` : key;
 }
 
 export function monthKey(iso: string): string {
@@ -118,7 +131,7 @@ export function cashflowSeries(
   granularity: CashflowGranularity,
 ): CashflowBucket[] {
   const buckets = new Map<string, { income: number; expense: number }>();
-  const keyFor = granularity === "week" ? weekKey : monthKey;
+  const keyFor = granularity === "day" ? dayKey : granularity === "week" ? weekKey : monthKey;
 
   for (const enrollment of state.enrollments) {
     if (
@@ -151,7 +164,8 @@ export function cashflowSeries(
       cumulative += net;
       return {
         key,
-        label: granularity === "week" ? weekLabel(key) : monthLabel(key),
+        label:
+          granularity === "day" ? dayLabel(key) : granularity === "week" ? weekLabel(key) : monthLabel(key),
         income: values.income,
         expense: values.expense,
         net,

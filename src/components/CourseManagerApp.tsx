@@ -40,6 +40,7 @@ import { ArenaMark } from "./ArenaMark";
 import {
   byId,
   cashflowSeries,
+  type CashflowGranularity,
   currency,
   ctvDisplay,
   expenseCategoryLabel,
@@ -2151,7 +2152,7 @@ function CashflowView({
   onUpdateExpense: (id: string, input: ExpenseInput) => void;
   onRemoveExpense: (id: string) => void;
 }) {
-  const [granularity, setGranularity] = useState<"week" | "month">("month");
+  const [granularity, setGranularity] = useState<CashflowGranularity>("day");
   const [expenseModal, setExpenseModal] = useState<Expense | "new" | null>(null);
   const series = useMemo(() => cashflowSeries(state, granularity), [state, granularity]);
   const summary = useMemo(() => financeSummary(state), [state]);
@@ -2164,6 +2165,9 @@ function CashflowView({
     [state],
   );
   const cumulative = series.at(-1)?.cumulative ?? 0;
+  const granLabel = granularity === "day" ? "ngày" : granularity === "week" ? "tuần" : "tháng";
+  // Theo ngày: 14 ngày gần nhất (2 tuần) đủ thấy xu hướng mà nhãn không quá chật.
+  const chartCount = granularity === "day" ? 14 : 12;
   const visibleCategoryRows = summary.byCategory.filter((item) => item.amount > 0);
   const sortedExpenses = useMemo(
     () =>
@@ -2184,10 +2188,11 @@ function CashflowView({
           <Segmented
             value={granularity}
             options={[
+              { value: "day", label: "Ngày" },
               { value: "week", label: "Tuần" },
               { value: "month", label: "Tháng" },
             ]}
-            onChange={(value) => setGranularity(value as "week" | "month")}
+            onChange={(value) => setGranularity(value as CashflowGranularity)}
           />
           <button
             className="button secondary"
@@ -2224,10 +2229,10 @@ function CashflowView({
       <div className="dashboard-grid cashflow-overview-grid">
         <section className="panel span-8">
           <PanelHeader
-            title={`Thu · chi · ròng theo ${granularity === "week" ? "tuần" : "tháng"}`}
-            action={series.length > 12 ? "12 kỳ gần nhất" : `${series.length} kỳ`}
+            title={`Thu · chi · ròng theo ${granLabel}`}
+            action={series.length > chartCount ? `${chartCount} ${granLabel} gần nhất` : `${series.length} ${granLabel}`}
           />
-          <CashflowChart data={series.slice(-12)} />
+          <CashflowChart data={series.slice(-chartCount)} />
         </section>
 
         <section className="panel span-4">
@@ -2257,7 +2262,16 @@ function CashflowView({
       </div>
 
       <section className="panel">
-        <PanelHeader title="Dòng tiền theo kỳ" action={granularity === "week" ? "Tuần bắt đầu từ Thứ 2" : "Theo tháng"} />
+        <PanelHeader
+          title="Dòng tiền theo kỳ"
+          action={
+            granularity === "day"
+              ? "Theo từng ngày"
+              : granularity === "week"
+                ? "Tuần bắt đầu từ Thứ 2"
+                : "Theo tháng"
+          }
+        />
         <DataTable className="cashflow-period-table">
           <thead>
             <tr>
