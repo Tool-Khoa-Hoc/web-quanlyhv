@@ -4545,15 +4545,22 @@ body {
 }
 
 .button.primary {
-  border-color: var(--blue);
-  background: var(--blue);
-  box-shadow: 0 8px 16px rgba(15, 118, 110, 0.2);
+  border-color: var(--blue-strong);
+  background: linear-gradient(160deg, #148578 0%, var(--blue) 55%, var(--blue-strong) 100%);
+  box-shadow: 0 8px 16px rgba(15, 118, 110, 0.2), inset 0 1px 0 rgba(255, 255, 255, 0.14);
 }
 
 .button.primary:hover {
   border-color: var(--blue-strong);
-  background: var(--blue-strong);
-  box-shadow: 0 12px 22px rgba(15, 118, 110, 0.25);
+  background: linear-gradient(160deg, #0f776a 0%, var(--blue-strong) 100%);
+  box-shadow: 0 12px 22px rgba(15, 118, 110, 0.28), inset 0 1px 0 rgba(255, 255, 255, 0.14);
+}
+
+/* Nhấn nút có phản hồi xúc giác nhẹ trên toàn bộ giao diện. */
+.button:active,
+.icon-button:active,
+.mini-button:active {
+  transform: translateY(1px);
 }
 
 .button.secondary,
@@ -5648,4 +5655,210 @@ body {
   .mobile-sheet-grid {
     grid-template-columns: minmax(0, 1fr);
   }
+}
+
+/* ============================================================
+   Biểu đồ Thu · Chi · Ròng — bản dựng lại (cf-*)
+   Doanh thu (Thu) là nhân vật chính: cột xanh đậm. Chi mờ hơn,
+   Ròng là đường mảnh; vàng chỉ dùng cho điểm đang rê chuột.
+   ============================================================ */
+.cf-chart {
+  display: grid;
+  gap: 12px;
+  container-type: inline-size;
+}
+
+.cf-plot {
+  position: relative;
+}
+
+.cf-plot svg {
+  display: block;
+  width: 100%;
+  height: auto;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: linear-gradient(180deg, #f4faf6 0%, #ffffff 68%);
+}
+
+.cf-grid {
+  stroke: #e3ede7;
+  stroke-width: 1;
+}
+
+.cf-axis {
+  stroke: #b4c8bd;
+  stroke-width: 1.25;
+}
+
+.cf-ytick {
+  fill: var(--muted);
+  font-size: 13px;
+  font-weight: 650;
+  font-variant-numeric: tabular-nums;
+}
+
+.cf-income {
+  fill: var(--green);
+}
+
+.cf-expense {
+  fill: #d98a7d;
+}
+
+.cf-net {
+  fill: none;
+  stroke: #16302b;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.cf-net-dot {
+  fill: var(--gold);
+  stroke: #ffffff;
+  stroke-width: 2;
+}
+
+.cf-guide {
+  stroke: var(--gold);
+  stroke-width: 1.25;
+  stroke-dasharray: 3 3;
+  opacity: 0.6;
+}
+
+/* Làm nổi cột đang chọn, các cột khác lùi lại. */
+.cf-plot:has(.cf-col.active) .cf-col:not(.active) {
+  opacity: 0.4;
+}
+
+.cf-col {
+  transition: opacity 120ms ease;
+}
+
+.cf-tooltip {
+  position: absolute;
+  top: 6px;
+  transform: translateX(-50%);
+  display: grid;
+  gap: 3px;
+  min-width: 150px;
+  padding: 10px 12px;
+  border: 1px solid var(--border-strong);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.97);
+  box-shadow: var(--shadow-md);
+  pointer-events: none;
+  backdrop-filter: blur(4px);
+  z-index: 2;
+}
+
+.cf-tooltip strong {
+  margin-bottom: 2px;
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 750;
+}
+
+.cf-tt-row {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.cf-tt-row b {
+  margin-left: auto;
+  color: var(--text);
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.cf-tt-row b.neg {
+  color: var(--red);
+}
+
+.cf-tt-row i {
+  width: 10px;
+  height: 10px;
+  flex: 0 0 auto;
+  border-radius: 3px;
+}
+
+.cf-tt-cum {
+  margin-top: 3px;
+  padding-top: 6px;
+  border-top: 1px dashed var(--border);
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.cf-tt-row i.income,
+.cf-legend i.income {
+  background: var(--green);
+}
+
+.cf-tt-row i.expense,
+.cf-legend i.expense {
+  background: #d98a7d;
+}
+
+.cf-tt-row i.net,
+.cf-legend i.net {
+  background: #16302b;
+}
+
+.cf-xaxis {
+  display: flex;
+  gap: 2px;
+  padding: 0 2px;
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 650;
+  font-variant-numeric: tabular-nums;
+}
+
+.cf-xaxis span {
+  flex: 1 1 0;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-align: center;
+  text-overflow: ellipsis;
+}
+
+.cf-xaxis span.active {
+  color: var(--text);
+  font-weight: 800;
+}
+
+.cf-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+  padding: 2px 2px 0;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.cf-legend span {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.cf-legend i {
+  width: 14px;
+  height: 8px;
+  border-radius: 3px;
+}
+
+.cf-legend i.net {
+  height: 3px;
+  border-radius: 999px;
 }

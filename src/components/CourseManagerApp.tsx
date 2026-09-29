@@ -2365,87 +2365,153 @@ function CashflowView({
   );
 }
 
+// Rút gọn số tiền cho nhãn trục: 12,5 tr · 800 k · 0 (không kèm "đ" cho gọn).
+function cfCompactMoney(value: number): string {
+  const sign = value < 0 ? "-" : "";
+  const abs = Math.abs(value);
+  if (abs >= 1_000_000_000) return `${sign}${(abs / 1_000_000_000).toLocaleString("vi-VN", { maximumFractionDigits: 1 })} tỷ`;
+  if (abs >= 1_000_000) return `${sign}${(abs / 1_000_000).toLocaleString("vi-VN", { maximumFractionDigits: 1 })} tr`;
+  if (abs >= 1_000) return `${sign}${Math.round(abs / 1_000)} k`;
+  return `${sign}${abs}`;
+}
+
+// Làm tròn "đẹp" lên bội số 1·2·5 để chia lưới trục cho gọn mắt.
+function cfNiceCeil(value: number): number {
+  if (value <= 0) return 0;
+  const exp = Math.floor(Math.log10(value));
+  const base = Math.pow(10, exp);
+  const frac = value / base;
+  const step = frac <= 1 ? 1 : frac <= 2 ? 2 : frac <= 5 ? 5 : 10;
+  return step * base;
+}
+
 function CashflowChart({
   data,
 }: {
   data: Array<{ key: string; label: string; income: number; expense: number; net: number; cumulative: number }>;
 }) {
+  const [active, setActive] = useState<number | null>(null);
+
   if (!data.length) return <EmptyState label="Chưa có dữ liệu để vẽ biểu đồ." />;
 
-  const maximum = Math.max(...data.flatMap((item) => [item.income, item.expense, item.net]), 0);
-  const minimum = Math.min(...data.map((item) => item.net), 0);
-  const range = Math.max(maximum - minimum, 1);
-  const y = (value: number) => 80 - ((value - minimum) / range) * 66;
-  const zeroY = y(0);
-  const slot = 84 / data.length;
-  const barWidth = Math.min(4, slot * 0.28);
-  const centers = data.map((_, index) => 8 + slot * (index + 0.5));
-  const incomePoints =
-    data.length === 1
-      ? `42,${y(data[0].income)} 58,${y(data[0].income)}`
-      : data.map((item, index) => `${centers[index]},${y(item.income)}`).join(" ");
-  const incomeArea =
-    data.length === 1
-      ? `M42 ${zeroY} L42 ${y(data[0].income)} L58 ${y(data[0].income)} L58 ${zeroY} Z`
-      : `M${centers[0]} ${zeroY} L${incomePoints.replaceAll(" ", " L")} L${centers.at(-1)} ${zeroY} Z`;
-  const netPoints =
-    data.length === 1
-      ? `42,${y(data[0].net)} 58,${y(data[0].net)}`
-      : data.map((item, index) => `${centers[index]},${y(item.net)}`).join(" ");
+  // Không gian vẽ (đơn vị SVG). Chừa lề trái cho nhãn trục tiền.
+  const W = 760;
+  const H = 300;
+  const mLeft = 52;
+  const mRight = 14;
+  const mTop = 16;
+  const mBottom = 26;
+  const plotLeft = mLeft;
+  const plotRight = W - mRight;
+  const plotTop = mTop;
+  const plotBottom = H - mBottom;
+  const plotW = plotRight - plotLeft;
+  const plotH = plotBottom - plotTop;
 
-  // Nhiều ngày thì chỉ hiện nhãn cách quãng để trục không bị chật.
+  const rawMax = Math.max(...data.flatMap((item) => [item.income, item.expense, item.net]), 0);
+  const rawMin = Math.min(...data.map((item) => item.net), 0);
+  const niceMax = cfNiceCeil(rawMax) || 1;
+  const niceMin = rawMin < 0 ? -cfNiceCeil(-rawMin) : 0;
+  const span = Math.max(niceMax - niceMin, 1);
+  const y = (value: number) => plotTop + ((niceMax - value) / span) * plotH;
+  const zeroY = y(0);
+
+  // Mốc lưới: chia đều từ min→max, luôn đi qua 0.
+  const tickCount = 4;
+  const ticks: number[] = [];
+  for (let i = 0; i <= tickCount; i++) ticks.push(niceMin + (span * i) / tickCount);
+
+  const slotW = plotW / data.length;
+  const centers = data.map((_, index) => plotLeft + slotW * (index + 0.5));
+  const groupW = Math.min(slotW * 0.62, 40);
+  const barW = Math.max(groupW / 2 - 1.5, 2);
+
+  const netPoints = data.map((item, index) => `${centers[index].toFixed(1)},${y(item.net).toFixed(1)}`).join(" ");
+
+  // Nhãn ngày thưa ra để trục dưới không chật.
   const labelStep = Math.max(1, Math.ceil(data.length / 12));
+  const activeItem = active != null ? data[active] : null;
+  const tooltipLeft = active != null ? Math.min(Math.max((centers[active] / W) * 100, 16), 84) : 50;
+
+  const onMove = (event: MouseEvent<HTMLDivElement>) => {
+    const rect = event.currentTarget.getBoundingClientRect();
+    const relX = ((event.clientX - rect.left) / rect.width) * W;
+    const index = Math.round((relX - plotLeft) / slotW - 0.5);
+    setActive(Math.min(Math.max(index, 0), data.length - 1));
+  };
 
   return (
-    <div className="bars-chart">
-      <svg viewBox="0 0 100 100" role="img" aria-label="Biểu đồ thu, chi và dòng tiền ròng">
-        <path d="M6 14 H94" className="chart-grid" />
-        <path d="M6 31 H94" className="chart-grid" />
-        <path d="M6 47 H94" className="chart-grid" />
-        <path d="M6 64 H94" className="chart-grid" />
-        <path d={`M6 ${zeroY} H94`} className="chart-axis" />
-        <path d={incomeArea} className="bar-income-area" />
-        <polyline points={incomePoints} className="bar-income-line" />
-        {data.map((item, index) => {
-          const incomeY = y(item.income);
-          const expenseY = y(item.expense);
-          return (
-            <g key={item.key}>
-              <rect
-                x={centers[index] - barWidth - 0.6}
-                y={Math.min(incomeY, zeroY)}
-                width={barWidth}
-                height={Math.max(Math.abs(zeroY - incomeY), 0.6)}
-                rx="0.9"
-                className="bar-income"
-              />
-              <rect
-                x={centers[index] + 0.6}
-                y={Math.min(expenseY, zeroY)}
-                width={barWidth}
-                height={Math.max(Math.abs(zeroY - expenseY), 0.6)}
-                rx="0.9"
-                className="bar-expense"
-              />
+    <div className="cf-chart">
+      <div className="cf-plot" onMouseMove={onMove} onMouseLeave={() => setActive(null)}>
+        <svg viewBox={`0 0 ${W} ${H}`} role="img" aria-label="Biểu đồ thu, chi và dòng tiền ròng theo kỳ">
+          {ticks.map((tick) => (
+            <g key={tick}>
+              <line x1={plotLeft} x2={plotRight} y1={y(tick)} y2={y(tick)} className={tick === 0 ? "cf-axis" : "cf-grid"} />
+              <text x={plotLeft - 8} y={y(tick)} className="cf-ytick" dominantBaseline="middle" textAnchor="end">
+                {cfCompactMoney(tick)}
+              </text>
             </g>
-          );
-        })}
-        <polyline points={netPoints} className="bar-net-line" />
-        {data.map((item, index) => (
-          <circle key={item.key} cx={centers[index]} cy={y(item.net)} r="1.5" className="bar-net-dot" />
-        ))}
-      </svg>
-      <div className="cashflow-chart-key" aria-label="Chú giải biểu đồ">
-        <span><i className="income" /> Thu</span>
-        <span><i className="expense" /> Chi</span>
-        <span><i className="net" /> Ròng</span>
+          ))}
+
+          {active != null ? (
+            <line x1={centers[active]} x2={centers[active]} y1={plotTop} y2={plotBottom} className="cf-guide" />
+          ) : null}
+
+          {data.map((item, index) => {
+            const incomeY = y(item.income);
+            const expenseY = y(item.expense);
+            const isActive = index === active;
+            return (
+              <g key={item.key} className={isActive ? "cf-col active" : "cf-col"}>
+                <rect
+                  x={centers[index] - barW - 1}
+                  y={Math.min(incomeY, zeroY)}
+                  width={barW}
+                  height={Math.max(Math.abs(zeroY - incomeY), 1)}
+                  rx="2"
+                  className="cf-income"
+                />
+                <rect
+                  x={centers[index] + 1}
+                  y={Math.min(expenseY, zeroY)}
+                  width={barW}
+                  height={Math.max(Math.abs(zeroY - expenseY), 1)}
+                  rx="2"
+                  className="cf-expense"
+                />
+              </g>
+            );
+          })}
+
+          <polyline points={netPoints} className="cf-net" vectorEffect="non-scaling-stroke" />
+          {activeItem ? (
+            <circle cx={centers[active as number]} cy={y(activeItem.net)} r="4.5" className="cf-net-dot" />
+          ) : null}
+        </svg>
+
+        {activeItem ? (
+          <div className="cf-tooltip" style={{ left: `${tooltipLeft}%` }} aria-hidden="true">
+            <strong>{activeItem.label}</strong>
+            <span className="cf-tt-row"><i className="income" />Thu<b>{currency(activeItem.income)}</b></span>
+            <span className="cf-tt-row"><i className="expense" />Chi<b>{currency(activeItem.expense)}</b></span>
+            <span className="cf-tt-row"><i className="net" />Ròng<b className={activeItem.net < 0 ? "neg" : ""}>{currency(activeItem.net)}</b></span>
+            <span className="cf-tt-cum">Lũy kế {currency(activeItem.cumulative)}</span>
+          </div>
+        ) : null}
       </div>
-      <div className="cashflow-chart-labels">
+
+      <div className="cf-xaxis" aria-hidden="true">
         {data.map((item, index) => (
-          <span key={item.key}>
+          <span key={item.key} className={index === active ? "active" : undefined}>
             {index % labelStep === 0 || index === data.length - 1 ? item.label : ""}
           </span>
         ))}
+      </div>
+
+      <div className="cf-legend" aria-label="Chú giải biểu đồ">
+        <span><i className="income" /> Thu</span>
+        <span><i className="expense" /> Chi</span>
+        <span><i className="net" /> Ròng</span>
       </div>
     </div>
   );
