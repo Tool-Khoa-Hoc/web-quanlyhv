@@ -206,6 +206,102 @@ button:disabled {
   background: var(--grad-blue);
 }
 
+/* Danh sách nhóm khóa học ở sidebar (nền forest tối). Chiếm phần còn lại và
+   cuộn riêng khi nhiều nhóm, để Admin card / User card vẫn nằm dưới cùng. */
+.sidebar-groups {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-height: 0;
+  flex: 1 1 auto;
+}
+
+.sidebar-groups-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 6px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: rgba(233, 245, 239, 0.55);
+}
+
+.sidebar-groups-count {
+  min-width: 20px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.1);
+  color: rgba(244, 248, 244, 0.85);
+  font-size: 11px;
+  text-align: center;
+}
+
+.sidebar-groups-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  overflow-y: auto;
+  min-height: 0;
+  padding-right: 2px;
+}
+
+.sidebar-group-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  width: 100%;
+  min-height: 34px;
+  border: 0;
+  border-radius: 8px;
+  padding: 0 10px;
+  background: transparent;
+  color: #b7cbc5;
+  font-size: 12.5px;
+  font-weight: 600;
+  text-align: left;
+  cursor: pointer;
+  transition: background 160ms ease, color 160ms ease;
+}
+
+.sidebar-group-item:hover {
+  background: rgba(255, 255, 255, 0.06);
+  color: #f4f8f4;
+}
+
+.sidebar-group-item.active {
+  background: rgba(201, 146, 46, 0.18);
+  color: var(--gold-soft);
+}
+
+.sidebar-group-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sidebar-group-count {
+  flex: 0 0 auto;
+  min-width: 20px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.09);
+  color: rgba(244, 248, 244, 0.8);
+  font-size: 11px;
+  font-weight: 700;
+  text-align: center;
+}
+
+.sidebar-groups-empty {
+  margin: 0;
+  padding: 0 6px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: rgba(233, 245, 239, 0.5);
+}
+
 .admin-status-card {
   margin-top: auto;
   display: flex;

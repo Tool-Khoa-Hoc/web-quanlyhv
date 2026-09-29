@@ -274,6 +274,9 @@ export function CourseManagerApp({ session }: { session: ClientSession }) {
   const [state, setState] = useState<AppState>(seedState);
   const [hydrated, setHydrated] = useState(false);
   const [activeView, setActiveView] = useState<ViewKey>("students");
+  // Tab con của workspace "Học viên" + nhóm cần mở sẵn khi bấm từ sidebar.
+  const [studentTab, setStudentTab] = useState<StudentTab>(isAdmin ? "paid" : "groups");
+  const [focusGroupId, setFocusGroupId] = useState<string | null>(null);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [modal, setModal] = useState<ModalMode>(null);
@@ -1510,6 +1513,21 @@ export function CourseManagerApp({ session }: { session: ClientSession }) {
     setMobileMenuOpen(false);
   }
 
+  // Bấm một nhóm ở sidebar: vào màn Học viên → tab "Theo nhóm" và mở sẵn nhóm đó.
+  function openGroupFromSidebar(groupId: string) {
+    setActiveView("students");
+    setStudentTab("groups");
+    setFocusGroupId(groupId);
+    setMobileMenuOpen(false);
+  }
+
+  // Nhóm hiển thị ở sidebar: admin thấy nhóm học viên (chính), CTV thấy nhóm được cấp.
+  const sidebarGroups = (
+    isAdmin ? state.groups.filter((group) => !isStudentGroup(group)) : state.groups
+  )
+    .slice()
+    .sort((a, b) => a.name.localeCompare(b.name, "vi"));
+
   return (
     <div className="app-shell">
       <aside className="sidebar" aria-label="Điều hướng chính">
@@ -1536,6 +1554,38 @@ export function CourseManagerApp({ session }: { session: ClientSession }) {
             </button>
           ))}
         </nav>
+
+        <div className="sidebar-groups">
+          <div className="sidebar-groups-head">
+            <span>Nhóm khóa học</span>
+            <span className="sidebar-groups-count">{sidebarGroups.length}</span>
+          </div>
+          {sidebarGroups.length ? (
+            <div className="sidebar-groups-list">
+              {sidebarGroups.map((group) => {
+                const active = activeView === "students" && studentTab === "groups" && focusGroupId === group.id;
+                const count = group.directMembersCount ?? memberCount(state, group.id);
+                return (
+                  <button
+                    key={group.id}
+                    className={active ? "sidebar-group-item active" : "sidebar-group-item"}
+                    type="button"
+                    onClick={() => openGroupFromSidebar(group.id)}
+                    title={group.groupEmail}
+                  >
+                    <span className="sidebar-group-name">{group.name}</span>
+                    <span className="sidebar-group-count">{count}</span>
+                  </button>
+                );
+              })}
+            </div>
+          ) : (
+            <p className="sidebar-groups-empty">
+              {isAdmin ? "Chưa có nhóm. Đồng bộ từ Google trong tab Theo nhóm." : "Chưa được cấp nhóm nào."}
+            </p>
+          )}
+        </div>
+
         {isAdmin ? <AdminStatusCard status={adminStatus} /> : null}
         <UserCard session={session} />
       </aside>
@@ -1650,6 +1700,10 @@ export function CourseManagerApp({ session }: { session: ClientSession }) {
               onAddMember={addGroupMember}
               onRemoveMember={removeGroupMember}
               onUpdateRole={updateMemberRole}
+              tab={studentTab}
+              onTabChange={setStudentTab}
+              focusGroupId={focusGroupId}
+              onFocusGroupHandled={() => setFocusGroupId(null)}
             />
           ) : null}
 
@@ -1792,6 +1846,10 @@ function StudentWorkspace({
   onAddMember,
   onRemoveMember,
   onUpdateRole,
+  tab,
+  onTabChange,
+  focusGroupId,
+  onFocusGroupHandled,
 }: {
   isAdmin: boolean;
   state: AppState;
@@ -1828,9 +1886,11 @@ function StudentWorkspace({
   ) => Promise<void>;
   onRemoveMember: (memberId: string) => void;
   onUpdateRole: (memberId: string, role: GroupRole) => void;
+  tab: StudentTab;
+  onTabChange: (tab: StudentTab) => void;
+  focusGroupId: string | null;
+  onFocusGroupHandled: () => void;
 }) {
-  const [tab, setTab] = useState<StudentTab>(isAdmin ? "paid" : "groups");
-
   if (!isAdmin) {
     return (
       <GroupsView
@@ -1845,6 +1905,8 @@ function StudentWorkspace({
         onAddMember={onAddMember}
         onRemoveMember={onRemoveMember}
         onUpdateRole={onUpdateRole}
+        focusGroupId={focusGroupId}
+        onFocusGroupHandled={onFocusGroupHandled}
       />
     );
   }
@@ -1860,7 +1922,7 @@ function StudentWorkspace({
             { value: "students", label: "Danh sách HV" },
             { value: "groups", label: "Theo nhóm" },
           ]}
-          onChange={(value) => setTab(value as StudentTab)}
+          onChange={(value) => onTabChange(value as StudentTab)}
         />
       </div>
 
@@ -1914,6 +1976,8 @@ function StudentWorkspace({
           onAddMember={onAddMember}
           onRemoveMember={onRemoveMember}
           onUpdateRole={onUpdateRole}
+          focusGroupId={focusGroupId}
+          onFocusGroupHandled={onFocusGroupHandled}
         />
       ) : null}
     </>
@@ -3034,6 +3098,8 @@ function GroupsView({
   onAddMember,
   onRemoveMember,
   onUpdateRole,
+  focusGroupId = null,
+  onFocusGroupHandled,
 }: {
   state: AppState;
   isAdmin: boolean;
@@ -3052,6 +3118,9 @@ function GroupsView({
   ) => void | Promise<void>;
   onRemoveMember: (memberId: string) => void;
   onUpdateRole: (memberId: string, role: GroupRole) => void;
+  /** Nhóm cần mở sẵn (bấm từ sidebar). Mở modal thành viên rồi báo cha đã xử lý. */
+  focusGroupId?: string | null;
+  onFocusGroupHandled?: () => void;
 }) {
   const [showAddGroup, setShowAddGroup] = useState(false);
   const [activeGroupId, setActiveGroupId] = useState<string | null>(null);
@@ -3059,6 +3128,19 @@ function GroupsView({
   const [kindFilter, setKindFilter] = useState<"all" | CourseGroup["kind"]>("all");
   const [syncingGroups, setSyncingGroups] = useState(false);
   const activeGroup = activeGroupId ? state.groups.find((group) => group.id === activeGroupId) : null;
+
+  // Mở nhóm được chọn từ sidebar: hiện modal thành viên + tải danh sách thật.
+  useEffect(() => {
+    if (!focusGroupId) return;
+    const target = state.groups.find((group) => group.id === focusGroupId);
+    if (target) {
+      setActiveGroupId(target.id);
+      void onOpenGroup(target);
+    }
+    onFocusGroupHandled?.();
+    // Chỉ chạy khi focusGroupId đổi; các dep khác ổn định trong vòng đời component.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [focusGroupId]);
   const scopedGroups = isAdmin
     ? state.groups.filter((group) => isStudentGroup(group) === studentGroupsOnly)
     : state.groups;
