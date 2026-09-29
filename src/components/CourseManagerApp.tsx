@@ -2,7 +2,6 @@
 
 import {
   AlertTriangle,
-  ArrowUpRight,
   CalendarDays,
   CheckCircle2,
   ChevronRight,
@@ -11,10 +10,7 @@ import {
   Filter,
   FlaskConical,
   GraduationCap,
-  Layers,
-  LayoutDashboard,
   Link2,
-  ListChecks,
   LockKeyhole,
   LogOut,
   LucideIcon,
@@ -132,24 +128,15 @@ interface NavItem {
 }
 
 const navItems: NavItem[] = [
-  { key: "dashboard", label: "Dashboard", shortLabel: "Tổng quan", icon: LayoutDashboard },
-  { key: "transactions", label: "Giao dịch", icon: ReceiptText },
-  { key: "cashflow", label: "Dòng tiền", icon: TrendingUp },
-  { key: "trials", label: "Học thử", icon: FlaskConical },
-  { key: "ctv", label: "CTV", icon: Users },
   { key: "students", label: "Học viên", icon: GraduationCap },
-  { key: "groups", label: "Nhóm", icon: Layers },
-  { key: "student-groups", label: "Khóa sinh viên", shortLabel: "Khóa SV", icon: GraduationCap },
-  { key: "jobs", label: "Jobs", icon: ListChecks },
+  { key: "cashflow", label: "Dòng tiền", icon: TrendingUp },
+  { key: "ctv", label: "CTV", icon: Users },
   { key: "settings", label: "Cài đặt", icon: Settings },
 ];
 
-// Thanh dưới ở mobile chỉ giữ 4 mục dùng nhiều nhất — 4 mục + nút "Thêm" là 5 ô,
-// vừa đủ rộng để nhãn không phải xuống dòng trên máy 360px.
-// Các view còn lại nằm trong sheet "Thêm" nên KHÔNG view nào bị mất trên điện thoại
-// (trước đây sidebar bị display:none nên Dòng tiền / CTV / Học viên / Cài đặt
-// và cả nút Đăng xuất đều không thể bấm được bằng điện thoại).
-const mobileNavKeys: ViewKey[] = ["dashboard", "transactions", "trials", "groups"];
+// Thanh dưới ở mobile: 3 mục dùng nhiều nhất + nút "Thêm" (mở sheet chứa Cài đặt
+// và nút Đăng xuất). Không màn nào bị mất trên điện thoại.
+const mobileNavKeys: ViewKey[] = ["students", "cashflow", "ctv"];
 const mobileNavItems = mobileNavKeys
   .map((key) => navItems.find((item) => item.key === key))
   .filter((item): item is NavItem => Boolean(item));
@@ -277,7 +264,7 @@ function resolveCtvByEmail(current: AppState, email: string): { state: AppState;
 
 export function CourseManagerApp({ session }: { session: ClientSession }) {
   const isAdmin = session.role === "admin";
-  const visibleNavItems = isAdmin ? navItems : navItems.filter((item) => item.key === "groups");
+  const visibleNavItems = isAdmin ? navItems : navItems.filter((item) => item.key === "students");
   // 4 mục ghim ở thanh dưới; phần còn lại đưa vào sheet "Thêm".
   const mobileBarItems = isAdmin ? mobileNavItems : visibleNavItems;
   const mobileSheetItems = visibleNavItems.filter(
@@ -286,7 +273,7 @@ export function CourseManagerApp({ session }: { session: ClientSession }) {
 
   const [state, setState] = useState<AppState>(seedState);
   const [hydrated, setHydrated] = useState(false);
-  const [activeView, setActiveView] = useState<ViewKey>(isAdmin ? "dashboard" : "groups");
+  const [activeView, setActiveView] = useState<ViewKey>("students");
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [modal, setModal] = useState<ModalMode>(null);
@@ -634,7 +621,7 @@ export function CourseManagerApp({ session }: { session: ClientSession }) {
     const group = state.groups.find((item) => item.id === form.groupId) ?? state.groups[0];
     if (!group) {
       setAdminNotice("Chưa có Google Group. Bấm 'Đồng bộ từ Google' trong trang Nhóm trước khi thêm giao dịch.");
-      setActiveView("groups");
+      setActiveView("students");
       return;
     }
     const resolved = resolveCtv(state, { email: form.ctvEmail, name: form.ctvName });
@@ -667,7 +654,7 @@ export function CourseManagerApp({ session }: { session: ClientSession }) {
       settleMemberJob(job.id, apiAddMember(group.groupEmail, form.gmail, "member"));
     }
     setModal(null);
-    setActiveView("transactions");
+    setActiveView("students");
   }
 
   function addTrialEnrollment(form: TrialFormState) {
@@ -677,7 +664,7 @@ export function CourseManagerApp({ session }: { session: ClientSession }) {
       state.groups[0];
     if (!trialGroup) {
       setAdminNotice("Chưa có Google Group. Bấm 'Đồng bộ từ Google' trong trang Nhóm trước khi thêm học thử.");
-      setActiveView("groups");
+      setActiveView("students");
       return;
     }
     const resolved = resolveCtv(state, { email: form.ctvEmail, name: form.ctvName });
@@ -721,7 +708,7 @@ export function CourseManagerApp({ session }: { session: ClientSession }) {
       );
     }
     setModal(null);
-    setActiveView("trials");
+    setActiveView("students");
   }
 
   function togglePayment(enrollmentId: string) {
@@ -854,7 +841,7 @@ export function CourseManagerApp({ session }: { session: ClientSession }) {
       setAdminNotice(`Đã cập nhật khóa: xóa ${previousEmail || "Gmail cũ"} và thêm ${nextEmail}.`);
     }
     setEditingPaidId(null);
-    setActiveView("transactions");
+    setActiveView("students");
   }
 
   // Đổi CTV cho 1 giao dịch đã ghi (sửa khi gán nhầm). Tính lại hoa hồng + tiền anh nhận.
@@ -911,7 +898,7 @@ export function CourseManagerApp({ session }: { session: ClientSession }) {
     const paidGroup = state.groups.find((item) => item.kind !== "trial") ?? state.groups[0];
     if (!paidGroup) {
       setAdminNotice("Chưa có nhóm trả phí để chuyển học thử.");
-      setActiveView("groups");
+      setActiveView("students");
       return;
     }
     const tuition = paidGroup.priceHint || 1200000;
@@ -952,7 +939,7 @@ export function CourseManagerApp({ session }: { session: ClientSession }) {
         settleMemberJob(removeJob.id, apiRemoveMember(trialGroup.groupEmail, student.gmail));
       }
     }
-    setActiveView("transactions");
+    setActiveView("students");
   }
 
   function enqueueGroupJob(enrollment: Enrollment) {
@@ -998,18 +985,34 @@ export function CourseManagerApp({ session }: { session: ClientSession }) {
         }
       }
 
+      // Giao dịch trả phí giữ lại (đánh dấu removedAt) để không mất khoản đã thu
+      // trong dòng tiền / công nợ CTV. Học thử (tuition 0) thì xóa hẳn cho gọn.
+      const keepEnrollment = enrollment.type === "paid";
+
       setState((current) => {
         const shouldDecrementCount = !removal.missing;
-        const hasOtherEnrollments = current.enrollments.some(
-          (item) => item.id !== enrollmentId && item.studentId === enrollment.studentId,
+        const removedAt = new Date().toISOString();
+        const remainingEnrollments = keepEnrollment
+          ? current.enrollments
+          : current.enrollments.filter((item) => item.id !== enrollmentId);
+        const hasOtherActiveEnrollments = remainingEnrollments.some(
+          (item) =>
+            item.id !== enrollmentId && item.studentId === enrollment.studentId && !item.removedAt,
         );
 
         return {
           ...current,
-          students: hasOtherEnrollments
-            ? current.students
-            : current.students.filter((item) => item.id !== enrollment.studentId),
-          enrollments: current.enrollments.filter((item) => item.id !== enrollmentId),
+          // Còn giữ giao dịch của học viên (kể cả bản vừa rời khóa) → giữ học viên
+          // để tra cứu lịch sử; chỉ xóa khi không còn bản ghi nào.
+          students:
+            keepEnrollment || hasOtherActiveEnrollments
+              ? current.students
+              : current.students.filter((item) => item.id !== enrollment.studentId),
+          enrollments: keepEnrollment
+            ? current.enrollments.map((item) =>
+                item.id === enrollmentId ? { ...item, removedAt } : item,
+              )
+            : remainingEnrollments,
           groupMembers: current.groupMembers.filter(
             (member) => !(member.groupId === enrollment.groupId && member.email === gmail),
           ),
@@ -1031,10 +1034,12 @@ export function CourseManagerApp({ session }: { session: ClientSession }) {
         };
       });
 
+      const keptNote = keepEnrollment ? " Giao dịch vẫn được giữ để tính dòng tiền." : "";
       setAdminNotice(
-        trialStatusSynced
-          ? `Đã hủy đăng ký và xóa ${gmail} khỏi ${group.name}.`
-          : `Đã hủy đăng ký và xóa ${gmail} khỏi Google Group. Chưa cập nhật được trạng thái học thử đồng bộ.`,
+        (trialStatusSynced
+          ? `Đã xóa ${gmail} khỏi ${group.name}.`
+          : `Đã xóa ${gmail} khỏi Google Group. Chưa cập nhật được trạng thái học thử đồng bộ.`) +
+          keptNote,
       );
     } catch (error) {
       const message = getErrorMessage(error);
@@ -1229,7 +1234,7 @@ export function CourseManagerApp({ session }: { session: ClientSession }) {
   function openEnrollmentModal(nextModal: ModalMode) {
     if (!state.groups.length) {
       setAdminNotice("Chưa có Google Group. Bấm 'Đồng bộ từ Google' trong trang Nhóm trước.");
-      setActiveView("groups");
+      setActiveView("students");
       return;
     }
     setModal(nextModal);
@@ -1614,30 +1619,37 @@ export function CourseManagerApp({ session }: { session: ClientSession }) {
         ) : null}
 
         <section className="content-stack">
-          {activeView === "dashboard" ? (
-            <DashboardView
+          {activeView === "students" ? (
+            <StudentWorkspace
+              isAdmin={isAdmin}
               state={state}
               model={model}
-              onTogglePayment={togglePayment}
-              onRetryJob={retryJob}
-              onOpenTransactions={() => setActiveView("transactions")}
-            />
-          ) : null}
-
-          {activeView === "transactions" ? (
-            <TransactionsView
-              state={state}
-              rows={filteredPaid}
+              filteredPaid={filteredPaid}
+              filteredTrials={filteredTrials}
+              trialRecords={trialRecords}
               ctvFilter={ctvFilter}
               paymentFilter={paymentFilter}
+              trialFilter={trialFilter}
+              domainMembers={domainMembers}
               onCtvFilter={setCtvFilter}
               onPaymentFilter={setPaymentFilter}
+              onTrialFilter={setTrialFilter}
               onTogglePayment={togglePayment}
               onEnqueueJob={enqueueGroupJob}
               onChangeCtv={changeEnrollmentCtv}
               onEditTransaction={setEditingPaidId}
               onCancelEnrollment={cancelEnrollment}
-              domainMembers={domainMembers}
+              onUpdateResult={updateTrialResult}
+              onConvertTrial={convertTrial}
+              onUpdateServerStatus={updateServerTrialStatus}
+              onLockStudent={lockStudentAccess}
+              onAddGroup={addGroup}
+              onDeleteGroup={deleteGroup}
+              onSyncFromGoogle={syncFromGoogle}
+              onOpenGroup={loadGroupMembers}
+              onAddMember={addGroupMember}
+              onRemoveMember={removeGroupMember}
+              onUpdateRole={updateMemberRole}
             />
           ) : null}
 
@@ -1647,22 +1659,6 @@ export function CourseManagerApp({ session }: { session: ClientSession }) {
               onAddExpense={addExpense}
               onUpdateExpense={updateExpense}
               onRemoveExpense={removeExpense}
-            />
-          ) : null}
-
-          {activeView === "trials" ? (
-            <TrialsView
-              state={state}
-              rows={filteredTrials}
-              trialRecords={trialRecords}
-              ctvFilter={ctvFilter}
-              trialFilter={trialFilter}
-              onCtvFilter={setCtvFilter}
-              onTrialFilter={setTrialFilter}
-              onUpdateResult={updateTrialResult}
-              onConvertTrial={convertTrial}
-              onUpdateServerStatus={updateServerTrialStatus}
-              onCancelEnrollment={cancelEnrollment}
             />
           ) : null}
 
@@ -1677,58 +1673,16 @@ export function CourseManagerApp({ session }: { session: ClientSession }) {
             />
           ) : null}
 
-          {activeView === "students" ? (
-            <StudentsView
-              state={state}
-              onCancelEnrollment={cancelEnrollment}
-              onLockStudent={lockStudentAccess}
-            />
-          ) : null}
-          {activeView === "groups" ? (
-            <GroupsView
-              state={state}
-              isAdmin={isAdmin}
-              studentGroupsOnly={false}
-              trialRecords={trialRecords}
-              onAddGroup={addGroup}
-              onDeleteGroup={deleteGroup}
-              onSyncFromGoogle={syncFromGoogle}
-              onOpenGroup={loadGroupMembers}
-              onAddMember={addGroupMember}
-              onRemoveMember={removeGroupMember}
-              onUpdateRole={updateMemberRole}
-            />
-          ) : null}
-          {activeView === "student-groups" ? (
-            <GroupsView
-              state={state}
-              isAdmin={isAdmin}
-              studentGroupsOnly
-              trialRecords={trialRecords}
-              onAddGroup={addGroup}
-              onDeleteGroup={deleteGroup}
-              onSyncFromGoogle={syncFromGoogle}
-              onOpenGroup={loadGroupMembers}
-              onAddMember={addGroupMember}
-              onRemoveMember={removeGroupMember}
-              onUpdateRole={updateMemberRole}
-            />
-          ) : null}
-          {activeView === "jobs" ? (
-            <JobsView
-              state={state}
-              activityJobs={ctvActivityJobs}
-              onRefresh={loadCtvActivityJobs}
-              onRetryJob={retryJob}
-              onCompleteJob={completeJob}
-            />
-          ) : null}
           {activeView === "settings" ? (
             <SettingsView
               state={state}
               adminStatus={adminStatus}
+              activityJobs={ctvActivityJobs}
               onReset={resetAppData}
               onRefreshAdminStatus={refreshAdminStatus}
+              onRefreshJobs={loadCtvActivityJobs}
+              onRetryJob={retryJob}
+              onCompleteJob={completeJob}
               adminNotice={adminNotice}
             />
           ) : null}
@@ -1803,191 +1757,166 @@ export function CourseManagerApp({ session }: { session: ClientSession }) {
   );
 }
 
-function DashboardView({
+type StudentTab = "paid" | "trial" | "students" | "groups";
+
+// Workspace "Học viên" gộp toàn bộ thao tác liên quan học viên vào 1 màn, chia
+// tab con: đăng ký chính thức, học thử, danh sách HV, và quản lý theo nhóm.
+// CTV chỉ thấy tab "Nhóm của tôi".
+function StudentWorkspace({
+  isAdmin,
   state,
   model,
+  filteredPaid,
+  filteredTrials,
+  trialRecords,
+  ctvFilter,
+  paymentFilter,
+  trialFilter,
+  domainMembers,
+  onCtvFilter,
+  onPaymentFilter,
+  onTrialFilter,
   onTogglePayment,
-  onRetryJob,
-  onOpenTransactions,
+  onEnqueueJob,
+  onChangeCtv,
+  onEditTransaction,
+  onCancelEnrollment,
+  onUpdateResult,
+  onConvertTrial,
+  onUpdateServerStatus,
+  onLockStudent,
+  onAddGroup,
+  onDeleteGroup,
+  onSyncFromGoogle,
+  onOpenGroup,
+  onAddMember,
+  onRemoveMember,
+  onUpdateRole,
 }: {
+  isAdmin: boolean;
   state: AppState;
   model: ReturnType<typeof buildModelShape>;
+  filteredPaid: Enrollment[];
+  filteredTrials: Enrollment[];
+  trialRecords: TrialRecord[];
+  ctvFilter: string;
+  paymentFilter: "all" | PaymentStatus;
+  trialFilter: "all" | TrialResult;
+  domainMembers: DomainMember[];
+  onCtvFilter: (id: string) => void;
+  onPaymentFilter: (status: "all" | PaymentStatus) => void;
+  onTrialFilter: (status: "all" | TrialResult) => void;
   onTogglePayment: (id: string) => void;
-  onRetryJob: (id: string) => void;
-  onOpenTransactions: () => void;
+  onEnqueueJob: (enrollment: Enrollment) => void;
+  onChangeCtv: (enrollmentId: string, ctvEmail: string) => void;
+  onEditTransaction: (id: string) => void;
+  onCancelEnrollment: (id: string) => void;
+  onUpdateResult: (id: string, result: TrialResult) => void;
+  onConvertTrial: (id: string) => void;
+  onUpdateServerStatus: (groupEmail: string, email: string, status: TrialStatus) => void;
+  onLockStudent: (studentId: string) => Promise<ApiLockStudentResult | undefined>;
+  onAddGroup: (form: GroupFormState) => void;
+  onDeleteGroup: (groupId: string) => void;
+  onSyncFromGoogle: () => void;
+  onOpenGroup: (group: CourseGroup) => void;
+  onAddMember: (
+    groupId: string,
+    email: string,
+    name: string,
+    role: GroupRole,
+    trialCourse?: string,
+  ) => Promise<void>;
+  onRemoveMember: (memberId: string) => void;
+  onUpdateRole: (memberId: string, role: GroupRole) => void;
 }) {
-  const recentPaid = model.paid.slice(0, 5);
-  const urgentTrials = model.trials
-    .filter((item) => item.trialResult === "dang_thu")
-    .sort((a, b) => (a.trialEndDate ?? "").localeCompare(b.trialEndDate ?? ""))
-    .slice(0, 4);
-  const actionableJobs = state.jobs.filter((job) => job.status !== "done").slice(0, 4);
+  const [tab, setTab] = useState<StudentTab>(isAdmin ? "paid" : "groups");
+
+  if (!isAdmin) {
+    return (
+      <GroupsView
+        state={state}
+        isAdmin={isAdmin}
+        studentGroupsOnly={false}
+        trialRecords={trialRecords}
+        onAddGroup={onAddGroup}
+        onDeleteGroup={onDeleteGroup}
+        onSyncFromGoogle={onSyncFromGoogle}
+        onOpenGroup={onOpenGroup}
+        onAddMember={onAddMember}
+        onRemoveMember={onRemoveMember}
+        onUpdateRole={onUpdateRole}
+      />
+    );
+  }
 
   return (
     <>
-      <div className="page-heading">
-        <div>
-          <h1>Dashboard</h1>
-          <p>Công nợ, chuyển đổi học thử và queue Google Group trong một màn hình.</p>
-        </div>
-        <button className="button secondary" type="button" onClick={onOpenTransactions}>
-          <ArrowUpRight size={17} />
-          <span>Xem giao dịch</span>
-        </button>
+      <div className="workspace-tabs">
+        <Segmented
+          value={tab}
+          options={[
+            { value: "paid", label: "Chính thức" },
+            { value: "trial", label: "Học thử" },
+            { value: "students", label: "Danh sách HV" },
+            { value: "groups", label: "Theo nhóm" },
+          ]}
+          onChange={(value) => setTab(value as StudentTab)}
+        />
       </div>
 
-      <div className="metric-grid">
-        <MetricCard label="Anh đáng nhận" value={currency(model.summary.expected)} icon={CircleDollarSign} tone="blue" />
-        <MetricCard label="Đã thu" value={currency(model.summary.received)} icon={CheckCircle2} tone="green" />
-        <MetricCard label="Còn nợ" value={currency(model.summary.debt)} icon={WalletCards} tone="amber" />
-      </div>
+      {tab === "paid" ? (
+        <TransactionsView
+          state={state}
+          rows={filteredPaid}
+          ctvFilter={ctvFilter}
+          paymentFilter={paymentFilter}
+          onCtvFilter={onCtvFilter}
+          onPaymentFilter={onPaymentFilter}
+          onTogglePayment={onTogglePayment}
+          onEnqueueJob={onEnqueueJob}
+          onChangeCtv={onChangeCtv}
+          onEditTransaction={onEditTransaction}
+          onCancelEnrollment={onCancelEnrollment}
+          domainMembers={domainMembers}
+        />
+      ) : null}
 
-      <div className="dashboard-grid">
-        <section className="panel span-12">
-          <PanelHeader title="Doanh thu theo ngày" action={`${model.summary.unpaidCount} khóa chưa trả`} />
-          <TrendChart data={model.trend} />
-        </section>
+      {tab === "trial" ? (
+        <TrialsView
+          state={state}
+          rows={filteredTrials}
+          trialRecords={trialRecords}
+          ctvFilter={ctvFilter}
+          trialFilter={trialFilter}
+          onCtvFilter={onCtvFilter}
+          onTrialFilter={onTrialFilter}
+          onUpdateResult={onUpdateResult}
+          onConvertTrial={onConvertTrial}
+          onUpdateServerStatus={onUpdateServerStatus}
+          onCancelEnrollment={onCancelEnrollment}
+        />
+      ) : null}
 
-        <section className="panel span-8">
-          <PanelHeader title="Giao dịch gần đây" action="Bảng giống Excel" />
-          <div className="desktop-data-table">
-            <DataTable>
-              <thead>
-                <tr>
-                  <th>Gmail</th>
-                  <th>CTV</th>
-                  <th>Môn/Combo</th>
-                  <th className="numeric">Anh nhận</th>
-                  <th>Trạng thái</th>
-                  <th></th>
-                </tr>
-              </thead>
-              <tbody>
-                {recentPaid.length ? (
-                  recentPaid.map((item) => (
-                    <TransactionRow
-                      key={item.id}
-                      enrollment={item}
-                      state={state}
-                      compact
-                      onTogglePayment={onTogglePayment}
-                    />
-                  ))
-                ) : (
-                  <EmptyTableRow colSpan={6} label="Chưa có giao dịch trả phí." />
-                )}
-              </tbody>
-            </DataTable>
-          </div>
-          <div className="mobile-transaction-list">
-            {recentPaid.length ? (
-              recentPaid.map((item) => (
-                <MobileTransactionItem
-                  key={item.id}
-                  enrollment={item}
-                  state={state}
-                  onTogglePayment={onTogglePayment}
-                />
-              ))
-            ) : (
-              <EmptyState label="Chưa có giao dịch trả phí." />
-            )}
-          </div>
-        </section>
+      {tab === "students" ? (
+        <StudentsView state={state} onCancelEnrollment={onCancelEnrollment} onLockStudent={onLockStudent} />
+      ) : null}
 
-        <div className="dashboard-side-stack span-4">
-          <section className="panel">
-            <PanelHeader title="Công nợ theo CTV" action="Ưu tiên thu" />
-            <div className="stack-list">
-              {model.ctvDebt.map((row) => (
-                <div className="debt-row" key={row.ctv.id}>
-                  <div>
-                    <strong>{row.ctv.name}</strong>
-                    <span>{row.pendingCount} giao dịch chờ</span>
-                  </div>
-                  <div className="money-cell debt">{currency(row.debt)}</div>
-                </div>
-              ))}
-            </div>
-          </section>
-
-          <section className="panel">
-            <PanelHeader title="Jobs mới nhất" action="Hôm nay" />
-            <div className="stack-list">
-              {urgentTrials.map((trial) => {
-                const student = model.studentMap.get(trial.studentId);
-                return (
-                  <div className="task-row" key={trial.id}>
-                    <Clock3 size={17} />
-                    <div>
-                      <strong>{student?.gmail}</strong>
-                      <span>Hết thử {trial.trialEndDate ? shortDate(trial.trialEndDate) : "chưa đặt"}</span>
-                    </div>
-                  </div>
-                );
-              })}
-              {actionableJobs.map((job) => (
-                <div className="task-row" key={job.id}>
-                  <RefreshCw size={17} />
-                  <div>
-                    <strong>{jobLabel(job)}</strong>
-                    <span>{statusLabel(job.status)}</span>
-                  </div>
-                  {job.status === "failed" || job.status === "needs_session" ? (
-                    <button className="mini-button" type="button" onClick={() => onRetryJob(job.id)}>
-                      Thử lại
-                    </button>
-                  ) : null}
-                </div>
-              ))}
-              {!urgentTrials.length && !actionableJobs.length ? <EmptyState label="Chưa có việc cần xử lý." /> : null}
-            </div>
-          </section>
-        </div>
-      </div>
+      {tab === "groups" ? (
+        <GroupsView
+          state={state}
+          isAdmin={isAdmin}
+          studentGroupsOnly={false}
+          trialRecords={trialRecords}
+          onAddGroup={onAddGroup}
+          onDeleteGroup={onDeleteGroup}
+          onSyncFromGoogle={onSyncFromGoogle}
+          onOpenGroup={onOpenGroup}
+          onAddMember={onAddMember}
+          onRemoveMember={onRemoveMember}
+          onUpdateRole={onUpdateRole}
+        />
+      ) : null}
     </>
-  );
-}
-
-function MobileTransactionItem({
-  enrollment,
-  state,
-  onTogglePayment,
-}: {
-  enrollment: Enrollment;
-  state: AppState;
-  onTogglePayment: (id: string) => void;
-}) {
-  const student = state.students.find((item) => item.id === enrollment.studentId);
-  const ctv = state.ctvs.find((item) => item.id === enrollment.ctvId);
-  const paid = enrollment.paymentStatus === "received";
-  const avatarSeed = student?.name || student?.gmail || "?";
-
-  return (
-    <div className="mobile-transaction-item">
-      <div className="mobile-transaction-avatar" aria-hidden="true">
-        {avatarSeed.slice(0, 1).toUpperCase()}
-      </div>
-      <div className="mobile-transaction-main">
-        <strong>{student?.gmail}</strong>
-        <span>{ctv ? ctvDisplay(ctv) : student?.name}</span>
-        <small>{enrollment.courseType}</small>
-      </div>
-      <div className="mobile-transaction-money">{currency(enrollment.tuition)}</div>
-      <div className="mobile-transaction-status">
-        <button
-          className={paid ? "payment-switch active" : "payment-switch"}
-          type="button"
-          aria-label={paid ? "Đánh dấu chưa thanh toán" : "Đánh dấu đã thanh toán"}
-          aria-pressed={paid}
-          onClick={() => onTogglePayment(enrollment.id)}
-        >
-          <span />
-        </button>
-        <PaymentBadge status={enrollment.paymentStatus} />
-      </div>
-      <ChevronRight className="mobile-transaction-chevron" size={20} aria-hidden="true" />
-    </div>
   );
 }
 
@@ -2097,6 +2026,56 @@ function TransactionsView({
   );
 }
 
+// Tải một file CSV ngay trên trình duyệt. BOM ﻿ để Excel đọc đúng tiếng Việt.
+function downloadCsv(filename: string, rows: Array<Array<string | number>>) {
+  const escapeCell = (value: string | number) => {
+    const text = String(value ?? "");
+    return /[",\n\r]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
+  };
+  const body = rows.map((row) => row.map(escapeCell).join(",")).join("\r\n");
+  const blob = new Blob([`﻿${body}`], { type: "text/csv;charset=utf-8;" });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filename;
+  link.click();
+  URL.revokeObjectURL(url);
+}
+
+// Xuất 2 file: thu học phí (mọi đăng ký trả phí) và khoản chi.
+function exportCashflowCsv(state: AppState) {
+  const studentMap = byId(state.students);
+  const ctvMap = byId(state.ctvs);
+  const groupMap = byId(state.groups);
+
+  const income: Array<Array<string | number>> = [
+    ["Ngày", "Học viên", "Khóa", "CTV", "Học phí", "Anh nhận", "Trạng thái", "Ngày thu", "Đã rời khóa"],
+  ];
+  for (const item of state.enrollments) {
+    if (item.type !== "paid") continue;
+    income.push([
+      shortDate(item.date),
+      studentMap.get(item.studentId)?.gmail ?? "",
+      groupMap.get(item.groupId)?.name ?? item.courseType,
+      ctvMap.get(item.ctvId)?.name ?? "",
+      item.tuition,
+      item.ownerShare,
+      item.paymentStatus === "received" ? "Đã thu" : "Chờ thu",
+      item.paymentReceivedDate ? shortDate(item.paymentReceivedDate) : "",
+      item.removedAt ? shortDate(item.removedAt) : "",
+    ]);
+  }
+
+  const expenses: Array<Array<string | number>> = [["Ngày", "Danh mục", "Số tiền", "Ghi chú"]];
+  for (const item of state.expenses ?? []) {
+    expenses.push([shortDate(item.date), expenseCategoryLabel(item.category), item.amount, item.note ?? ""]);
+  }
+
+  const stamp = todayISO();
+  downloadCsv(`thu-hoc-phi-${stamp}.csv`, income);
+  downloadCsv(`khoan-chi-${stamp}.csv`, expenses);
+}
+
 function CashflowView({
   state,
   onAddExpense,
@@ -2112,6 +2091,14 @@ function CashflowView({
   const [expenseModal, setExpenseModal] = useState<Expense | "new" | null>(null);
   const series = useMemo(() => cashflowSeries(state, granularity), [state, granularity]);
   const summary = useMemo(() => financeSummary(state), [state]);
+  // Công nợ = tiền anh nhận đã ghi nhận nhưng học viên chưa nộp (paymentStatus pending).
+  const pending = useMemo(
+    () =>
+      paidEnrollments(state)
+        .filter((item) => item.paymentStatus === "pending")
+        .reduce((sum, item) => sum + item.ownerShare, 0),
+    [state],
+  );
   const cumulative = series.at(-1)?.cumulative ?? 0;
   const visibleCategoryRows = summary.byCategory.filter((item) => item.amount > 0);
   const sortedExpenses = useMemo(
@@ -2129,19 +2116,31 @@ function CashflowView({
           <h1>Dòng tiền</h1>
           <p>Theo dõi tiền thực nhận, chi phí vận hành và số dư trên cơ sở thu chi thực tế.</p>
         </div>
-        <Segmented
-          value={granularity}
-          options={[
-            { value: "week", label: "Tuần" },
-            { value: "month", label: "Tháng" },
-          ]}
-          onChange={(value) => setGranularity(value as "week" | "month")}
-        />
+        <div className="cashflow-heading-actions">
+          <Segmented
+            value={granularity}
+            options={[
+              { value: "week", label: "Tuần" },
+              { value: "month", label: "Tháng" },
+            ]}
+            onChange={(value) => setGranularity(value as "week" | "month")}
+          />
+          <button
+            className="button secondary"
+            type="button"
+            onClick={() => exportCashflowCsv(state)}
+            title="Tải file CSV thu học phí và khoản chi (mở được bằng Excel)"
+          >
+            <Save size={17} />
+            <span>Xuất CSV</span>
+          </button>
+        </div>
       </div>
 
       <div className="metric-grid cash-metric-grid">
-        <MetricCard label="Tổng thu" value={currency(summary.income)} icon={CheckCircle2} tone="green" />
-        <MetricCard label="Tổng chi" value={currency(summary.expense)} icon={ReceiptText} tone="amber" />
+        <MetricCard label="Đã thu" value={currency(summary.income)} icon={CheckCircle2} tone="green" />
+        <MetricCard label="Chờ thu" value={currency(pending)} icon={Clock3} tone="amber" negative={pending > 0} />
+        <MetricCard label="Tổng chi" value={currency(summary.expense)} icon={ReceiptText} tone="slate" />
         <MetricCard
           label="Dòng tiền ròng"
           value={currency(summary.net)}
@@ -3798,14 +3797,22 @@ function AdminStatusInline({ status }: { status: AdminSdkState }) {
 function SettingsView({
   state,
   adminStatus,
+  activityJobs,
   onReset,
   onRefreshAdminStatus,
+  onRefreshJobs,
+  onRetryJob,
+  onCompleteJob,
   adminNotice,
 }: {
   state: AppState;
   adminStatus: AdminSdkState;
+  activityJobs: GroupJob[];
   onReset: () => void;
   onRefreshAdminStatus: () => void;
+  onRefreshJobs: () => void;
+  onRetryJob: (id: string) => void;
+  onCompleteJob: (id: string) => void;
   adminNotice: string;
 }) {
   const details = adminStatus.state === "ready" ? adminStatus.details : null;
@@ -3871,6 +3878,14 @@ function SettingsView({
           </button>
         </section>
       </div>
+
+      <JobsView
+        state={state}
+        activityJobs={activityJobs}
+        onRefresh={onRefreshJobs}
+        onRetryJob={onRetryJob}
+        onCompleteJob={onCompleteJob}
+      />
     </>
   );
 }
@@ -3955,7 +3970,12 @@ function TransactionRow({
           ctv?.name
         )}
       </td>
-      <td>{group?.name ?? enrollment.courseType}</td>
+      <td>
+        {group?.name ?? enrollment.courseType}
+        {enrollment.removedAt ? (
+          <span className="table-subtext">Đã rời khóa · {shortDate(enrollment.removedAt)}</span>
+        ) : null}
+      </td>
       <td className="numeric money-cell">{currency(enrollment.tuition)}</td>
       <td className="numeric money-cell debt">{currency(enrollment.ownerShare)}</td>
       <td>
@@ -3979,15 +3999,15 @@ function TransactionRow({
             Queue
           </button>
         ) : null}
-        {onCancelEnrollment ? (
+        {onCancelEnrollment && !enrollment.removedAt ? (
           <button
             className="mini-button danger"
             type="button"
             onClick={() => onCancelEnrollment(enrollment.id)}
-            title="Hủy đăng ký và xóa khỏi Google Group"
+            title="Xóa học viên khỏi Google Group (vẫn giữ giao dịch để tính dòng tiền)"
           >
             <Trash2 size={14} />
-            Hủy
+            Xóa khỏi khóa
           </button>
         ) : null}
       </td>

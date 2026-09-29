@@ -1,14 +1,6 @@
-export type ViewKey =
-  | "dashboard"
-  | "transactions"
-  | "cashflow"
-  | "trials"
-  | "ctv"
-  | "students"
-  | "groups"
-  | "student-groups"
-  | "jobs"
-  | "settings";
+// UI rút gọn: chỉ còn 4 màn chính. "students" là workspace gộp (đăng ký chính
+// thức, học thử, danh sách HV, quản lý theo nhóm) qua các tab con.
+export type ViewKey = "students" | "cashflow" | "ctv" | "settings";
 
 export type EnrollmentType = "paid" | "trial";
 export type TrialResult = "dang_thu" | "da_dang_ky" | "khong_dang_ky";
@@ -72,6 +64,9 @@ export interface Enrollment {
   trialResult?: TrialResult;
   trialEndDate?: string;
   note?: string;
+  // Thời điểm học viên bị gỡ khỏi Google Group. Giữ lại đăng ký (đặc biệt là
+  // khoản đã thu) để dòng tiền / công nợ không mất, thay vì xóa hẳn bản ghi.
+  removedAt?: string;
 }
 
 export interface Expense {

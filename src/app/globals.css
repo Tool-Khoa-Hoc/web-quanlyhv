@@ -909,6 +909,24 @@ button:disabled {
   flex: 0 0 auto;
 }
 
+.cashflow-heading-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+/* Tab con của workspace "Học viên" (Chính thức / Học thử / Danh sách HV / Theo nhóm). */
+.workspace-tabs {
+  margin-bottom: 14px;
+}
+
+.workspace-tabs .segmented {
+  width: fit-content;
+  max-width: 100%;
+  overflow-x: auto;
+}
+
 .expense-breakdown {
   display: grid;
   gap: 16px;
