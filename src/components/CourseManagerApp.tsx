@@ -970,7 +970,7 @@ export function CourseManagerApp({ session }: { session: ClientSession }) {
     }
 
     const confirmed = window.confirm(
-      `Hủy đăng ký ${gmail} khỏi ${group.name}? Học viên sẽ được xóa khỏi Google Group tương ứng.`,
+      `Hủy đăng ký ${gmail} khỏi ${group.name}? Học viên sẽ được xóa khỏi Google Group và toàn bộ doanh thu đã thu của đăng ký này cũng bị gỡ khỏi dòng tiền.`,
     );
     if (!confirmed) return;
 
@@ -989,34 +989,24 @@ export function CourseManagerApp({ session }: { session: ClientSession }) {
         }
       }
 
-      // Giao dịch trả phí giữ lại (đánh dấu removedAt) để không mất khoản đã thu
-      // trong dòng tiền / công nợ CTV. Học thử (tuition 0) thì xóa hẳn cho gọn.
-      const keepEnrollment = enrollment.type === "paid";
-
+      // Hủy đăng ký = xóa hẳn bản ghi (kể cả đăng ký trả phí) để doanh thu đã thu
+      // cũng được gỡ khỏi dòng tiền / công nợ CTV theo yêu cầu.
       setState((current) => {
         const shouldDecrementCount = !removal.missing;
-        const removedAt = new Date().toISOString();
-        const remainingEnrollments = keepEnrollment
-          ? current.enrollments
-          : current.enrollments.filter((item) => item.id !== enrollmentId);
-        const hasOtherActiveEnrollments = remainingEnrollments.some(
-          (item) =>
-            item.id !== enrollmentId && item.studentId === enrollment.studentId && !item.removedAt,
+        const remainingEnrollments = current.enrollments.filter(
+          (item) => item.id !== enrollmentId,
+        );
+        const hasOtherEnrollments = remainingEnrollments.some(
+          (item) => item.studentId === enrollment.studentId,
         );
 
         return {
           ...current,
-          // Còn giữ giao dịch của học viên (kể cả bản vừa rời khóa) → giữ học viên
-          // để tra cứu lịch sử; chỉ xóa khi không còn bản ghi nào.
-          students:
-            keepEnrollment || hasOtherActiveEnrollments
-              ? current.students
-              : current.students.filter((item) => item.id !== enrollment.studentId),
-          enrollments: keepEnrollment
-            ? current.enrollments.map((item) =>
-                item.id === enrollmentId ? { ...item, removedAt } : item,
-              )
-            : remainingEnrollments,
+          // Chỉ còn giữ học viên nếu họ vẫn còn đăng ký khác; nếu không thì xóa luôn.
+          students: hasOtherEnrollments
+            ? current.students
+            : current.students.filter((item) => item.id !== enrollment.studentId),
+          enrollments: remainingEnrollments,
           groupMembers: current.groupMembers.filter(
             (member) => !(member.groupId === enrollment.groupId && member.email === gmail),
           ),
@@ -1038,12 +1028,10 @@ export function CourseManagerApp({ session }: { session: ClientSession }) {
         };
       });
 
-      const keptNote = keepEnrollment ? " Giao dịch vẫn được giữ để tính dòng tiền." : "";
       setAdminNotice(
-        (trialStatusSynced
-          ? `Đã xóa ${gmail} khỏi ${group.name}.`
-          : `Đã xóa ${gmail} khỏi Google Group. Chưa cập nhật được trạng thái học thử đồng bộ.`) +
-          keptNote,
+        trialStatusSynced
+          ? `Đã xóa ${gmail} khỏi ${group.name} và gỡ doanh thu liên quan khỏi dòng tiền.`
+          : `Đã xóa ${gmail} khỏi Google Group và gỡ doanh thu liên quan. Chưa cập nhật được trạng thái học thử đồng bộ.`,
       );
     } catch (error) {
       const message = getErrorMessage(error);
@@ -4173,7 +4161,7 @@ function TransactionRow({
             className="mini-button danger"
             type="button"
             onClick={() => onCancelEnrollment(enrollment.id)}
-            title="Xóa học viên khỏi Google Group (vẫn giữ giao dịch để tính dòng tiền)"
+            title="Xóa học viên khỏi Google Group và gỡ luôn doanh thu đã thu của đăng ký này"
           >
             <Trash2 size={14} />
             Xóa khỏi khóa
