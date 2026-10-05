@@ -13,7 +13,7 @@ import {
 } from "./calculations";
 import { trimJobHistory } from "./job-history";
 import { seedState } from "./seed-data";
-import type { AppState, CourseGroup, Enrollment, GroupJob } from "./types";
+import type { AppState, CourseGroup, Enrollment, GroupJob, Student } from "./types";
 
 /**
  * Tìm Google Group cho một đăng ký một cách "khoan dung".
@@ -159,9 +159,39 @@ export function matchesQuery(enrollment: Enrollment, query: string, state: AppSt
   return haystack.includes(normalized);
 }
 
+/**
+ * Dọn các đăng ký "đã rời khóa" (có `removedAt`) còn sót lại từ phiên bản cũ.
+ *
+ * Trước đây khi hủy đăng ký trả phí, bản ghi chỉ bị đánh dấu `removedAt` và được
+ * giữ lại nên vẫn hiện trong danh sách và vẫn cộng doanh thu vào dòng tiền. Nay
+ * hủy đăng ký là xóa hẳn, nên các bản ghi cũ này cần được gỡ bỏ khi nạp dữ liệu:
+ * xóa đăng ký và xóa luôn học viên nếu họ không còn đăng ký nào khác.
+ */
+export function purgeRemovedEnrollments(
+  enrollments: Enrollment[],
+  students: Student[],
+): { enrollments: Enrollment[]; students: Student[]; changed: boolean } {
+  const removed = enrollments.filter((item) => item.removedAt);
+  if (removed.length === 0) {
+    return { enrollments, students, changed: false };
+  }
+
+  const kept = enrollments.filter((item) => !item.removedAt);
+  const stillEnrolled = new Set(kept.map((item) => item.studentId));
+  const orphanedStudentIds = new Set(
+    removed.map((item) => item.studentId).filter((id) => !stillEnrolled.has(id)),
+  );
+  const nextStudents = orphanedStudentIds.size
+    ? students.filter((student) => !orphanedStudentIds.has(student.id))
+    : students;
+
+  return { enrollments: kept, students: nextStudents, changed: true };
+}
+
 export function normalizePersistedState(parsed: AppState): AppState {
   const groups = (parsed.groups ?? []).filter((group) => group.id && group.groupEmail);
   const groupIds = new Set(groups.map((group) => group.id));
+  const purged = purgeRemovedEnrollments(parsed.enrollments ?? [], parsed.students ?? []);
 
   return {
     ...seedState,
@@ -170,6 +200,8 @@ export function normalizePersistedState(parsed: AppState): AppState {
       ...seedState.settings,
       ...parsed.settings,
     },
+    students: purged.students,
+    enrollments: purged.enrollments,
     groups,
     expenses: parsed.expenses ?? [],
     groupMembers: (parsed.groupMembers ?? []).filter((member) => groupIds.has(member.groupId)),

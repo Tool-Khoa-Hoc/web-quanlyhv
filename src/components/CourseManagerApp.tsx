@@ -66,6 +66,7 @@ import {
   LEGACY_STORAGE_KEYS,
   matchesQuery,
   normalizePersistedState,
+  purgeRemovedEnrollments,
   resolveEnrollmentGroup,
   STORAGE_KEY,
 } from "@/lib/app-model";
@@ -314,12 +315,15 @@ export function CourseManagerApp({ session }: { session: ClientSession }) {
   // Áp sổ cái từ server vào state (giữ nguyên groups/groupMembers cục bộ).
   const applyLedger = useCallback((ledger: LedgerData) => {
     ledgerRevRef.current = ledger.rev;
-    ledgerSyncingRef.current = true;
+    // Dọn bản ghi "đã rời khóa" cũ còn sót trong sổ cái dùng chung. Nếu có dọn,
+    // KHÔNG đặt cờ bỏ qua để lần lưu kế tiếp đẩy dữ liệu đã dọn lên server (xóa hẳn).
+    const purged = purgeRemovedEnrollments(ledger.enrollments, ledger.students);
+    ledgerSyncingRef.current = !purged.changed;
     setState((current) => ({
       ...current,
       ctvs: ledger.ctvs,
-      students: ledger.students,
-      enrollments: ledger.enrollments,
+      students: purged.students,
+      enrollments: purged.enrollments,
       expenses: ledger.expenses ?? current.expenses,
       jobs: ledger.jobs ?? current.jobs,
       settings: { ...current.settings, ...ledger.settings },
@@ -2102,7 +2106,7 @@ function exportCashflowCsv(state: AppState) {
   const groupMap = byId(state.groups);
 
   const income: Array<Array<string | number>> = [
-    ["Ngày", "Học viên", "Khóa", "CTV", "Học phí", "Anh nhận", "Trạng thái", "Ngày thu", "Đã rời khóa"],
+    ["Ngày", "Học viên", "Khóa", "CTV", "Học phí", "Anh nhận", "Trạng thái", "Ngày thu"],
   ];
   for (const item of state.enrollments) {
     if (item.type !== "paid") continue;
@@ -2115,7 +2119,6 @@ function exportCashflowCsv(state: AppState) {
       item.ownerShare,
       item.paymentStatus === "received" ? "Đã thu" : "Chờ thu",
       item.paymentReceivedDate ? shortDate(item.paymentReceivedDate) : "",
-      item.removedAt ? shortDate(item.removedAt) : "",
     ]);
   }
 
@@ -4127,12 +4130,7 @@ function TransactionRow({
           ctv?.name
         )}
       </td>
-      <td>
-        {group?.name ?? enrollment.courseType}
-        {enrollment.removedAt ? (
-          <span className="table-subtext">Đã rời khóa · {shortDate(enrollment.removedAt)}</span>
-        ) : null}
-      </td>
+      <td>{group?.name ?? enrollment.courseType}</td>
       <td className="numeric money-cell">{currency(enrollment.tuition)}</td>
       <td className="numeric money-cell debt">{currency(enrollment.ownerShare)}</td>
       <td>
@@ -4156,7 +4154,7 @@ function TransactionRow({
             Queue
           </button>
         ) : null}
-        {onCancelEnrollment && !enrollment.removedAt ? (
+        {onCancelEnrollment ? (
           <button
             className="mini-button danger"
             type="button"

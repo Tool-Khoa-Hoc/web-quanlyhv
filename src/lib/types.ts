@@ -64,8 +64,9 @@ export interface Enrollment {
   trialResult?: TrialResult;
   trialEndDate?: string;
   note?: string;
-  // Thời điểm học viên bị gỡ khỏi Google Group. Giữ lại đăng ký (đặc biệt là
-  // khoản đã thu) để dòng tiền / công nợ không mất, thay vì xóa hẳn bản ghi.
+  // [Đã bỏ] Trước đây đánh dấu thời điểm học viên rời khóa và giữ lại bản ghi.
+  // Nay hủy đăng ký là xóa hẳn; trường này chỉ còn để nhận diện và dọn các bản
+  // ghi cũ còn sót (xem purgeRemovedEnrollments).
   removedAt?: string;
 }
 
