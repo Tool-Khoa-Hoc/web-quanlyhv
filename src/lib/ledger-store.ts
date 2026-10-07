@@ -29,15 +29,28 @@ export function isLedgerConfigured(): boolean {
   return isKvConfigured();
 }
 
+function asArray<T>(value: unknown): T[] {
+  return Array.isArray(value) ? (value as T[]) : [];
+}
+
 function parseLedger(raw: string | null | undefined): LedgerData | null {
   if (!raw) return null;
   try {
-    const parsed = JSON.parse(raw) as Omit<LedgerData, "expenses"> & { expenses?: Expense[] };
+    const parsed = JSON.parse(raw) as Partial<LedgerData>;
     if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return null;
+    // Mọi danh sách phải là array khi trả về client. Ledger v1 cũ không có
+    // `expenses`, và bản ghi do script Lua cũ tạo có thể lưu mảng rỗng thành
+    // `{}` — để nguyên thì client `.filter`/`.map` sẽ nổ và mất cả bảng.
     return {
       ...parsed,
-      // Ledger v1 cũ không có chi phí; coi như danh sách rỗng khi đọc lại.
-      expenses: Array.isArray(parsed.expenses) ? parsed.expenses : [],
+      ctvs: asArray<Ctv>(parsed.ctvs),
+      students: asArray<Student>(parsed.students),
+      enrollments: asArray<Enrollment>(parsed.enrollments),
+      expenses: asArray<Expense>(parsed.expenses),
+      jobs: asArray<GroupJob>(parsed.jobs),
+      settings: (parsed.settings ?? {}) as Settings,
+      rev: Number(parsed.rev) || 0,
+      updatedAt: typeof parsed.updatedAt === "string" ? parsed.updatedAt : "",
     };
   } catch {
     return null;
@@ -69,42 +82,48 @@ export async function writeLedger(
   const now = new Date().toISOString();
 
   // Thử atomic qua Lua trước. Nếu Upstash không hỗ trợ eval thì fallback read-then-write.
+  //
+  // Lua CHỈ đọc rev rồi SET nguyên chuỗi JSON đã dựng ở JS. Trước đây script
+  // `cjson.decode` payload rồi `cjson.encode` lại — cjson biến mảng rỗng `[]`
+  // thành object `{}` (và không giữ thứ tự khóa), nên sổ cái ghi ra có thể sai
+  // kiểu và client đọc lại bị lỗi/mất danh sách.
+  const nextRev = baseRev + 1;
+  const nextJson = JSON.stringify({
+    ctvs: payload.ctvs,
+    students: payload.students,
+    enrollments: payload.enrollments,
+    expenses: payload.expenses,
+    jobs: payload.jobs,
+    settings: payload.settings,
+    rev: nextRev,
+    updatedAt: now,
+  });
+
   try {
     const lua = `
       local cur = redis.call('GET', KEYS[1])
       local curRev = 0
       if cur then
         local ok, obj = pcall(cjson.decode, cur)
-        if ok and obj and obj.rev then curRev = tonumber(obj.rev) or 0 end
+        if ok and type(obj) == 'table' and obj.rev then curRev = tonumber(obj.rev) or 0 end
       end
       if cur and tonumber(ARGV[1]) ~= curRev then
         return cur
       end
-      local nextObj = cjson.decode(ARGV[2])
-      nextObj.rev = curRev + 1
-      nextObj.updatedAt = ARGV[3]
-      local nextJson = cjson.encode(nextObj)
-      redis.call('SET', KEYS[1], nextJson)
-      return nextJson
+      redis.call('SET', KEYS[1], ARGV[2])
+      return 'OK'
     `;
-    const basePayload = JSON.stringify({
-      ctvs: payload.ctvs,
-      students: payload.students,
-      enrollments: payload.enrollments,
-      expenses: payload.expenses,
-      jobs: payload.jobs,
-      settings: payload.settings,
-    });
     // @upstash/redis eval: (script, keys, args)
-    const raw = await (redis as unknown as { eval: (s: string, k: string[], a: string[]) => Promise<unknown> }).eval(lua, [LEDGER_KEY], [String(baseRev), basePayload, now]);
+    const raw = await (
+      redis as unknown as { eval: (s: string, k: string[], a: string[]) => Promise<unknown> }
+    ).eval(lua, [LEDGER_KEY], [String(baseRev), nextJson]);
     const json = typeof raw === "string" ? raw : String(raw ?? "");
-    const parsed = parseLedger(json);
-    if (parsed) {
-      // Nếu Lua vừa ghi thì updatedAt === now (do server set). Ngược lại là bản cũ -> conflict.
-      // Đơn giản: đọc lại để so sánh? Ở đây dùng heuristic: nếu parsed.updatedAt === now thì là ghi mới.
-      if (parsed.updatedAt === now) return { ok: true, ledger: parsed };
-      return { ok: false, ledger: parsed };
+    // 'OK' = vừa ghi; bất cứ gì khác là bản server hiện tại → đụng độ.
+    if (json === "OK") {
+      return { ok: true, ledger: JSON.parse(nextJson) as LedgerData };
     }
+    const parsed = parseLedger(json);
+    if (parsed) return { ok: false, ledger: parsed };
   } catch {
     // fallback bên dưới
   }

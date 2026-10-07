@@ -91,7 +91,13 @@ import {
   type LedgerData,
 } from "@/lib/admin-api";
 import { getErrorMessage } from "@/lib/error-message";
-import { trimJobHistory } from "@/lib/job-history";
+import {
+  mergeLedger,
+  sameSnapshot,
+  snapshotFromLedger,
+  snapshotFromState,
+  type LedgerSnapshot,
+} from "@/lib/ledger-merge";
 import type {
   ApiAdminStatus,
   ClientSession,
@@ -305,32 +311,45 @@ export function CourseManagerApp({ session }: { session: ClientSession }) {
   const ledgerRevRef = useRef(0);
   // Đã nạp xong sổ cái lần đầu chưa (trước đó không được phép ghi đè/đẩy lên).
   const ledgerReadyRef = useRef(false);
-  // true khi state đổi do áp dữ liệu từ server → bỏ qua 1 lần ghi để tránh vòng lặp.
-  const ledgerSyncingRef = useRef(false);
+  // Bản sổ cái mà server ĐANG có theo hiểu biết của client ("base" của hợp nhất
+  // 3 chiều). Nhờ mốc này mới phân biệt được "bản ghi mới ở máy này" với "bản
+  // ghi đã bị thiết bị khác xóa" — thiếu nó thì mọi lần đồng bộ đều ghi đè và
+  // học viên vừa thêm sẽ biến mất khỏi khóa.
+  const ledgerBaseRef = useRef<LedgerSnapshot | null>(null);
   // Khóa tuần tự + cờ "còn thay đổi" để gộp nhiều lần ghi liên tiếp.
   const ledgerSavingRef = useRef(false);
   const ledgerDirtyRef = useRef(false);
   const ledgerSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // Áp sổ cái từ server vào state (giữ nguyên groups/groupMembers cục bộ).
-  const applyLedger = useCallback((ledger: LedgerData) => {
+  // Hợp nhất sổ cái từ server vào state (giữ nguyên groups/groupMembers cục bộ).
+  // Trả về bản đã hợp nhất để người gọi ghi lại ngay phần local chưa có ở server.
+  const applyLedger = useCallback((ledger: LedgerData): LedgerSnapshot => {
     ledgerRevRef.current = ledger.rev;
-    // Dọn bản ghi "đã rời khóa" cũ còn sót trong sổ cái dùng chung. Nếu có dọn,
-    // KHÔNG đặt cờ bỏ qua để lần lưu kế tiếp đẩy dữ liệu đã dọn lên server (xóa hẳn).
-    const purged = purgeRemovedEnrollments(ledger.enrollments, ledger.students);
-    ledgerSyncingRef.current = !purged.changed;
-    setState((current) => ({
-      ...current,
-      ctvs: ledger.ctvs,
-      students: purged.students,
-      enrollments: purged.enrollments,
-      expenses: ledger.expenses ?? current.expenses,
-      jobs: ledger.jobs ?? current.jobs,
-      settings: { ...current.settings, ...ledger.settings },
-    }));
+    const local = snapshotFromState(stateRef.current);
+    const server = snapshotFromLedger(ledger, stateRef.current.settings);
+    const base = ledgerBaseRef.current;
+    // base mới = đúng bản vừa đọc từ server (chưa dọn), để lần ghi sau biết
+    // phần nào là thay đổi thật của máy này.
+    ledgerBaseRef.current = server;
+
+    const combine = (localSnapshot: LedgerSnapshot): LedgerSnapshot => {
+      // Lần đầu chưa có base → không suy ra được ai thêm/ai xóa, lấy bản server.
+      const next = base ? mergeLedger(base, localSnapshot, server).merged : server;
+      // Dọn bản ghi "đã rời khóa" cũ còn sót trong sổ cái dùng chung; vì base là
+      // bản server chưa dọn nên lần ghi kế tiếp sẽ xóa hẳn chúng trên server.
+      const purged = purgeRemovedEnrollments(next.enrollments, next.students);
+      return { ...next, enrollments: purged.enrollments, students: purged.students };
+    };
+
+    const merged = combine(local);
+    // Cập nhật mirror ngay để flushLedger dùng được bản hợp nhất mà không phải
+    // chờ React commit.
+    stateRef.current = { ...stateRef.current, ...merged };
+    setState((current) => ({ ...current, ...combine(snapshotFromState(current)) }));
+    return merged;
   }, []);
 
-  // Ghi sổ cái lên server (tuần tự, gộp thay đổi). Đụng độ → nhận bản server.
+  // Ghi sổ cái lên server (tuần tự, gộp thay đổi). Đụng độ → HỢP NHẤT rồi ghi lại.
   const flushLedger = useCallback(async () => {
     if (!isAdmin || !ledgerReadyRef.current) return;
     if (ledgerSavingRef.current) {
@@ -339,27 +358,30 @@ export function CourseManagerApp({ session }: { session: ClientSession }) {
     }
     ledgerSavingRef.current = true;
     try {
+      let conflicts = 0;
       do {
         ledgerDirtyRef.current = false;
-        const current = stateRef.current;
-        const result = await saveLedger(
-          {
-            ctvs: current.ctvs,
-            students: current.students,
-            enrollments: current.enrollments,
-            expenses: current.expenses,
-            jobs: trimJobHistory(current.jobs),
-            settings: current.settings,
-          },
-          ledgerRevRef.current,
-        );
+        const payload = snapshotFromState(stateRef.current);
+        // Không khác bản server đang biết → khỏi ghi (chặn vòng lặp apply → save).
+        if (ledgerBaseRef.current && sameSnapshot(payload, ledgerBaseRef.current)) break;
+        const result = await saveLedger(payload, ledgerRevRef.current);
         if (result.ok) {
           ledgerRevRef.current = result.ledger.rev;
-        } else {
-          // Server mới hơn (thiết bị khác vừa ghi) → nhận bản server, dừng.
-          applyLedger(result.ledger);
-          setAdminNotice("Đã cập nhật dữ liệu mới nhất từ thiết bị khác.");
-          break;
+          ledgerBaseRef.current = payload;
+          continue;
+        }
+        // Server mới hơn (thiết bị/tab khác vừa ghi). Hợp nhất rồi ghi lại —
+        // tuyệt đối không bỏ dữ liệu cục bộ như trước.
+        conflicts += 1;
+        const merged = applyLedger(result.ledger);
+        ledgerDirtyRef.current = !sameSnapshot(merged, ledgerBaseRef.current ?? merged);
+        if (conflicts >= 5) {
+          setAdminNotice(
+            "Thiết bị khác đang ghi liên tục. Đã hợp nhất dữ liệu, hệ thống sẽ lưu lại sau.",
+          );
+          ledgerDirtyRef.current = false;
+        } else if (ledgerDirtyRef.current) {
+          setAdminNotice("Đã hợp nhất dữ liệu mới nhất từ thiết bị khác.");
         }
       } while (ledgerDirtyRef.current);
     } catch (error) {
@@ -377,6 +399,8 @@ export function CourseManagerApp({ session }: { session: ClientSession }) {
       if (ledger) {
         applyLedger(ledger);
         ledgerReadyRef.current = true;
+        // Nếu vừa dọn bản ghi cũ thì bản hợp nhất khác server → đẩy lên.
+        await flushLedger();
         return;
       }
       ledgerReadyRef.current = true;
@@ -386,16 +410,23 @@ export function CourseManagerApp({ session }: { session: ClientSession }) {
     }
   }, [applyLedger, flushLedger]);
 
-  // Làm tươi sổ cái: chỉ áp khi server có rev mới hơn (tránh đè edit cục bộ).
+  // Làm tươi sổ cái: luôn hợp nhất (không còn ghi đè) khi server có rev mới hơn.
   const refreshLedger = useCallback(async () => {
     if (!isAdmin || !ledgerReadyRef.current) return;
+    // Đang có lần ghi dở → để flushLedger tự xử lý đụng độ, tránh apply chen ngang.
+    if (ledgerSavingRef.current) return;
     try {
       const ledger = await fetchLedger();
-      if (ledger && ledger.rev > ledgerRevRef.current) applyLedger(ledger);
+      if (!ledger || ledger.rev <= ledgerRevRef.current) return;
+      const merged = applyLedger(ledger);
+      // Máy này còn thay đổi chưa lên server → đẩy ngay, đừng chờ lần sửa sau.
+      if (!ledgerBaseRef.current || !sameSnapshot(merged, ledgerBaseRef.current)) {
+        await flushLedger();
+      }
     } catch {
       // bỏ qua
     }
-  }, [isAdmin, applyLedger]);
+  }, [isAdmin, applyLedger, flushLedger]);
 
   const loadTrialRecords = useCallback(async () => {
     try {
@@ -485,11 +516,13 @@ export function CourseManagerApp({ session }: { session: ClientSession }) {
     void loadLedger();
   }, [hydrated, isAdmin, loadLedger]);
 
-  // Admin: state đổi → đẩy lên server (debounce). Bỏ qua lần áp dữ liệu từ server.
+  // Admin: state đổi → đẩy lên server (debounce).
+  // Chặn vòng lặp "apply từ server → ghi lại" bằng cách so với bản server đang
+  // biết, thay vì cờ "bỏ qua 1 lần" như trước (cờ đó còn ăn luôn timer đang chờ
+  // nên thay đổi cục bộ trước đó không bao giờ được lưu).
   useEffect(() => {
     if (!hydrated || !isAdmin || !ledgerReadyRef.current) return;
-    if (ledgerSyncingRef.current) {
-      ledgerSyncingRef.current = false;
+    if (ledgerBaseRef.current && sameSnapshot(snapshotFromState(state), ledgerBaseRef.current)) {
       return;
     }
     if (ledgerSaveTimer.current) clearTimeout(ledgerSaveTimer.current);
@@ -497,17 +530,7 @@ export function CourseManagerApp({ session }: { session: ClientSession }) {
     return () => {
       if (ledgerSaveTimer.current) clearTimeout(ledgerSaveTimer.current);
     };
-  }, [
-    hydrated,
-    isAdmin,
-    flushLedger,
-    state.ctvs,
-    state.students,
-    state.enrollments,
-    state.expenses,
-    state.jobs,
-    state.settings,
-  ]);
+  }, [hydrated, isAdmin, flushLedger, state]);
 
   // Admin: làm tươi sổ cái khi quay lại tab + poll định kỳ (bắt thay đổi từ máy khác).
   useEffect(() => {
@@ -653,10 +676,19 @@ export function CourseManagerApp({ session }: { session: ClientSession }) {
     };
 
     const job = createJob("add_member", group.id, form.gmail);
-    setState({
-      ...withStudent.state,
-      enrollments: [enrollment, ...withStudent.state.enrollments],
-      jobs: [job, ...withStudent.state.jobs],
+    // Cập nhật theo dạng functional: nếu có setState khác (job chạy xong, hợp
+    // nhất sổ cái...) chen vào giữa render và lúc submit thì vẫn không bị mất.
+    setState((current) => {
+      const resolvedNow = resolveCtv(current, { email: form.ctvEmail, name: form.ctvName });
+      const withStudentNow = findOrCreateStudent(resolvedNow.state, form.gmail, form.studentName);
+      return {
+        ...withStudentNow.state,
+        enrollments: [
+          { ...enrollment, ctvId: resolvedNow.ctv.id, studentId: withStudentNow.studentId },
+          ...withStudentNow.state.enrollments,
+        ],
+        jobs: [job, ...withStudentNow.state.jobs],
+      };
     });
     if (group?.groupEmail) {
       settleMemberJob(job.id, apiAddMember(group.groupEmail, form.gmail, "member"));
@@ -696,10 +728,17 @@ export function CourseManagerApp({ session }: { session: ClientSession }) {
     };
 
     const job = createJob("add_member", trialGroup.id, form.gmail);
-    setState({
-      ...withStudent.state,
-      enrollments: [enrollment, ...withStudent.state.enrollments],
-      jobs: [job, ...withStudent.state.jobs],
+    setState((current) => {
+      const resolvedNow = resolveCtv(current, { email: form.ctvEmail, name: form.ctvName });
+      const withStudentNow = findOrCreateStudent(resolvedNow.state, form.gmail, form.studentName);
+      return {
+        ...withStudentNow.state,
+        enrollments: [
+          { ...enrollment, ctvId: resolvedNow.ctv.id, studentId: withStudentNow.studentId },
+          ...withStudentNow.state.enrollments,
+        ],
+        jobs: [job, ...withStudentNow.state.jobs],
+      };
     });
     if (trialGroup?.groupEmail) {
       // Ghi lên Sheet (kho chung) để CTV cũng thấy + gắn người thêm.
